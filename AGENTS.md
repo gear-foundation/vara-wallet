@@ -272,6 +272,24 @@ Or set globally:
 export VARA_WS=wss://testnet.vara.network
 ```
 
+### Light Client Mode
+
+Use `--light` to connect via an embedded smoldot light client instead of a WebSocket RPC. This provides trustless, decentralized chain access without depending on centralized RPC infrastructure.
+
+```bash
+vara-wallet --light balance
+vara-wallet --light node info
+```
+
+Or via environment variable:
+
+```bash
+export VARA_LIGHT=1
+vara-wallet balance
+```
+
+**Note:** Initial sync takes 10-30s. Gear-specific RPC methods (gas calculation) are not available through the light client, so commands like `message send` require manual `--gas-limit`.
+
 ## Common Workflows
 
 ### Deploy and interact with a program
