@@ -26,9 +26,17 @@ vara-wallet call <programId> Service/Method --args '["arg1", "arg2"]'
 ## Installation
 
 ```bash
+npm install -g vara-wallet
+```
+
+### From source
+
+```bash
+git clone https://github.com/ukint-vs/vara-wallet.git
+cd vara-wallet
+npm install --legacy-peer-deps
 npm run build
-# Binary: dist/app.js
-# Or link globally: npm link
+npm link
 ```
 
 ## Global Options
