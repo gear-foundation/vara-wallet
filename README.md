@@ -43,6 +43,7 @@ npm link
 
 ```
 --ws <endpoint>       WebSocket endpoint (default: wss://rpc.vara.network)
+--light               Use embedded light client (smoldot) instead of WebSocket
 --seed <seed>         Account seed (SURI like //Alice or hex)
 --mnemonic <mnemonic> Account mnemonic phrase
 --account <name>      Wallet name to use
@@ -59,6 +60,7 @@ npm link
 | `VARA_WS` | WebSocket endpoint | `wss://rpc.vara.network` |
 | `VARA_SEED` | Account seed | — |
 | `VARA_MNEMONIC` | Account mnemonic | — |
+| `VARA_LIGHT` | Set to `1` to use embedded light client (smoldot) | — |
 | `VARA_PASSPHRASE` | Wallet passphrase (CI/Docker fallback) | — |
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
 | `VARA_META_STORAGE` | Meta-storage URL for IDL fetching | — |

@@ -31,6 +31,7 @@ program
   .description('Agentic wallet CLI for Vara Network — designed for AI coding agents')
   .version('0.1.0')
   .option('--ws <endpoint>', 'WebSocket endpoint (default: wss://rpc.vara.network)')
+  .option('--light', 'use embedded light client (smoldot) instead of WebSocket')
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
   .option('--mnemonic <mnemonic>', 'account mnemonic phrase')
   .option('--account <name>', 'wallet name to use')
@@ -46,6 +47,9 @@ program
       quiet: opts.quiet,
       verbose: opts.verbose,
     });
+    if (opts.light) {
+      process.env.VARA_LIGHT = '1';
+    }
   });
 
 // Register commands — Phase 1
