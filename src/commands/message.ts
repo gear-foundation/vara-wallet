@@ -87,6 +87,7 @@ export function registerMessageCommand(program: Command): void {
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber: result.blockNumber,
         messageId: messageId || null,
         events: result.events,
       });
@@ -154,6 +155,7 @@ export function registerMessageCommand(program: Command): void {
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber: result.blockNumber,
         events: result.events,
       });
     });
