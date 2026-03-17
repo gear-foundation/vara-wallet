@@ -32,7 +32,7 @@
     "ts-jest": "^29.4.5",
     "typescript": "^5.9.3"
   },
-  "license": "GPL-3.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ukint-vs/vara-wallet.git"
