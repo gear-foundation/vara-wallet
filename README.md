@@ -131,7 +131,7 @@ vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--val
 vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units vara|raw] [--origin <addr>] [--at <blockHash>]
 ```
 
-Gas is auto-calculated if `--gas-limit` is omitted.
+Gas is auto-calculated if `--gas-limit` is omitted. Use `--value` to transfer VARA tokens alongside a message (e.g., for payable program calls).
 
 ### `program`
 
