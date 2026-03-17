@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails } from '../services/sails';
+import { resolveBlockNumber } from '../services/tx-executor';
 import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
 
 export function registerVftCommand(program: Command): void {
@@ -28,10 +29,26 @@ export function registerVftCommand(program: Command): void {
       const query = sails.services[serviceName].queries['BalanceOf'];
       const result = await query(address).call();
 
+      // Try to query token decimals for human-readable formatting
+      let decimals: number | null = null;
+      try {
+        const decQuery = sails.services[serviceName].queries['Decimals'];
+        if (decQuery) {
+          const dec = await decQuery().call();
+          decimals = Number(dec);
+        }
+      } catch {
+        // Not all VFT contracts expose Decimals
+      }
+
       output({
         tokenProgram,
         account: address,
-        balance: String(result),
+        balance: decimals !== null
+          ? minimalToVara(BigInt(result), decimals)
+          : String(result),
+        balanceRaw: String(result),
+        ...(decimals !== null && { decimals }),
       });
     });
 
@@ -60,10 +77,12 @@ export function registerVftCommand(program: Command): void {
 
       const result = await txBuilder.signAndSend();
       const response = await result.response();
+      const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber,
         messageId: result.msgId,
         result: response,
       });
@@ -94,10 +113,12 @@ export function registerVftCommand(program: Command): void {
 
       const result = await txBuilder.signAndSend();
       const response = await result.response();
+      const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber,
         messageId: result.msgId,
         result: response,
       });

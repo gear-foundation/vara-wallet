@@ -30,7 +30,8 @@ export function registerMailboxCommand(program: Command): void {
           source: msgJson.source,
           destination: msgJson.destination,
           payload: msgJson.payload,
-          value: msgJson.value?.toString(),
+          value: String(msgJson.value ?? '0'),
+          valueVara: minimalToVara(BigInt(String(msgJson.value ?? '0'))),
           start: intervalJson.start,
           finish: intervalJson.finish,
         };
@@ -57,6 +58,7 @@ export function registerMailboxCommand(program: Command): void {
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber: result.blockNumber,
         messageId,
         events: result.events,
       });

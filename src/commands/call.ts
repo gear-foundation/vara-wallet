@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails, describeSailsProgram } from '../services/sails';
+import { resolveBlockNumber } from '../services/tx-executor';
 import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
 
 export function registerCallCommand(program: Command): void {
@@ -145,10 +146,12 @@ async function executeFunction(
 
   const result = await txBuilder.signAndSend();
   const response = await result.response();
+  const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
   output({
     txHash: result.txHash,
     blockHash: result.blockHash,
+    blockNumber,
     messageId: result.msgId,
     result: response,
   });

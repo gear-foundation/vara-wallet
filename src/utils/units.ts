@@ -18,18 +18,20 @@ export function varaToMinimal(amount: string): bigint {
 }
 
 /**
- * Convert minimal units to human-readable VARA amount.
- * Returns a string with up to 12 decimal places, trailing zeros trimmed.
+ * Convert minimal units to human-readable amount.
+ * Returns a string with up to `decimals` decimal places, trailing zeros trimmed.
+ * Defaults to 12 decimals (VARA).
  */
-export function minimalToVara(minimal: bigint): string {
-  const whole = minimal / MULTIPLIER;
-  const fractional = minimal % MULTIPLIER;
+export function minimalToVara(minimal: bigint, decimals: number = VARA_DECIMALS): string {
+  const multiplier = 10n ** BigInt(decimals);
+  const whole = minimal / multiplier;
+  const fractional = minimal % multiplier;
 
   if (fractional === 0n) {
     return whole.toString();
   }
 
-  const fractionalStr = fractional.toString().padStart(VARA_DECIMALS, '0').replace(/0+$/, '');
+  const fractionalStr = fractional.toString().padStart(decimals, '0').replace(/0+$/, '');
   return `${whole}.${fractionalStr}`;
 }
 

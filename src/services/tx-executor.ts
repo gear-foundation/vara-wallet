@@ -21,6 +21,18 @@ export interface TxEvent {
 
 const TX_TIMEOUT_MS = 60_000;
 
+export async function resolveBlockNumber(
+  api: GearApi,
+  blockHash: string,
+): Promise<number | undefined> {
+  try {
+    const header = await api.rpc.chain.getHeader(blockHash);
+    return header.number.toNumber();
+  } catch {
+    return undefined;
+  }
+}
+
 export async function executeTx(
   api: GearApi,
   extrinsic: AnyExtrinsic,
@@ -68,10 +80,13 @@ export async function executeTx(
             return;
           }
 
-          resolve({
-            txHash: extrinsic.hash.toHex(),
-            blockHash,
-            events: txEvents,
+          resolveBlockNumber(api, blockHash).then((blockNumber) => {
+            resolve({
+              txHash: extrinsic.hash.toHex(),
+              blockHash,
+              blockNumber,
+              events: txEvents,
+            });
           });
         }
       })
