@@ -9,7 +9,7 @@ export function registerCallCommand(program: Command): void {
   program
     .command('call')
     .description('Call a Sails program method (auto-detects query vs function)')
-    .argument('<programId>', 'program ID (0x...)')
+    .argument('<programId>', 'program ID (hex or SS58)')
     .argument('<method>', 'Service/Method name (e.g. Counter/Increment)')
     .option('--args <json>', 'method arguments as JSON array', '[]')
     .option('--value <value>', 'value to send (in VARA, functions only)', '0')
