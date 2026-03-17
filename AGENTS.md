@@ -84,8 +84,11 @@ vara-wallet program list --count 10
 # Transfer VARA
 vara-wallet --account agent transfer <destination> 10
 
-# Send message to program
+# Send message to any actor (program, user, wallet)
 vara-wallet --account agent message send 0x1234... --payload 0xdeadbeef
+
+# Send message with value transfer (transfers VARA to any destination alongside the message)
+vara-wallet --account agent message send 0x1234... --payload 0xdeadbeef --value 5
 
 # Call a Sails function (state-changing)
 vara-wallet --account agent call 0x1234... Service/Function --args '["arg1"]'
@@ -339,6 +342,8 @@ echo $RESULT | jq '.events[] | select(.section == "balances" and .method == "Tra
 ## Idiosyncrasies
 
 1. **Messages are async.** `message send` returns when the message is queued, not when it's processed. Use `wait` to get the reply.
+
+8. **`message send` doubles as a value transfer.** The destination can be any actor — program, user account, or wallet. Use `--value` to send VARA tokens alongside a message payload. This is useful for payable interactions or transferring tokens with custom data to any address.
 
 2. **Gas = 0 fallback.** If gas calculation returns 0 (can happen with some programs), the CLI falls back to the block gas limit.
 

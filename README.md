@@ -128,18 +128,18 @@ vara-wallet transfer <to> <amount> [--units vara|raw]
 ### `message`
 
 ```bash
-vara-wallet message send <programId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
+vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
 vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
 vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units vara|raw] [--origin <addr>] [--at <blockHash>]
 ```
 
-Gas is auto-calculated if `--gas-limit` is omitted.
+Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor (program, user, wallet). Use `--value` to transfer VARA tokens alongside a message.
 
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--salt <hex>] [--metadata <path>]
-vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--salt <hex>] [--metadata <path>]
+vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>]
 ```
@@ -157,7 +157,7 @@ vara-wallet code list [--count <n>]
 High-level method invocation on Sails programs. Auto-detects queries vs functions.
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--gas-limit <n>] [--idl <path>]
+vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>]
 ```
 
 ### `discover` (Sails)
@@ -182,6 +182,13 @@ vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>]
 vara-wallet voucher issue <spender> <value> [--units vara|raw] [--duration <blocks>] [--programs <ids>]
 vara-wallet voucher list <account> [--program <id>]
 vara-wallet voucher revoke <spender> <voucherId>
+```
+
+### `mailbox`
+
+```bash
+vara-wallet mailbox read [address]
+vara-wallet mailbox claim <messageId>
 ```
 
 ### `state`
