@@ -101,7 +101,7 @@ export function registerVoucherCommand(program: Command): void {
 
       output({
         voucherId,
-        spender,
+        spender: spenderHex,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
       });
