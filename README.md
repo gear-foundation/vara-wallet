@@ -8,7 +8,7 @@ All output is structured JSON by default. No interactive prompts. Wallets are en
 
 ```bash
 # Install
-cd tools/vara-wallet && npm run build
+npm install -g vara-wallet
 
 # Create a wallet (auto-generates passphrase, encrypts, no secrets shown)
 vara-wallet wallet create --name my-wallet
@@ -245,4 +245,4 @@ npx tsc --noEmit     # Type check only
 
 ## License
 
-GPL-3.0
+MIT
