@@ -29,6 +29,7 @@ export async function resolveBlockNumber(
     const header = await api.rpc.chain.getHeader(blockHash);
     return header.number.toNumber();
   } catch {
+    verbose(`Failed to resolve block number for hash ${blockHash}`);
     return undefined;
   }
 }

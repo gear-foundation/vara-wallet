@@ -38,7 +38,7 @@ export function registerVftCommand(program: Command): void {
           decimals = Number(dec);
         }
       } catch {
-        // Not all VFT contracts expose Decimals
+        verbose(`Could not query token decimals for program ${tokenProgram}`);
       }
 
       output({
