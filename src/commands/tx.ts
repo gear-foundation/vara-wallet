@@ -46,6 +46,7 @@ export function registerTxCommand(program: Command): void {
         method,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
         events: txResult.events,
       });
     });

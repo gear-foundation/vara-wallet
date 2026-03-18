@@ -80,6 +80,7 @@ export function registerProgramCommand(program: Command): void {
         salt: uploadResult.salt,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
         events: txResult.events,
       });
     });
@@ -148,6 +149,7 @@ export function registerProgramCommand(program: Command): void {
         salt: createResult.salt,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
         events: txResult.events,
       });
     });

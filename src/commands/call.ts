@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails, describeSailsProgram } from '../services/sails';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
+import { resolveBlockNumber } from '../services/tx-executor';
+import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -15,7 +16,7 @@ export function registerCallCommand(program: Command): void {
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--gas-limit <gas>', 'gas limit override (functions only)')
     .option('--idl <path>', 'path to local IDL file')
-    .action(async (programIdArg: string, method: string, options: {
+    .action(async (programId: string, method: string, options: {
       args: string;
       value: string;
       units?: string;
@@ -24,7 +25,6 @@ export function registerCallCommand(program: Command): void {
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
-      const programId = addressToHex(programIdArg);
 
       // Parse Service/Method
       const parts = method.split('/');
@@ -146,10 +146,12 @@ async function executeFunction(
 
   const result = await txBuilder.signAndSend();
   const response = await result.response();
+  const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
   output({
     txHash: result.txHash,
     blockHash: result.blockHash,
+    blockNumber,
     messageId: result.msgId,
     result: response,
   });

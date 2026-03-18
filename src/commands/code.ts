@@ -32,6 +32,7 @@ export function registerCodeCommand(program: Command): void {
         codeId: codeHash,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
         events: txResult.events,
       });
     });

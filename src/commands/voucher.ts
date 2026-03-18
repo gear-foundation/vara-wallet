@@ -52,6 +52,7 @@ export function registerVoucherCommand(program: Command): void {
         programs: programs || null,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
       });
     });
 
@@ -104,6 +105,7 @@ export function registerVoucherCommand(program: Command): void {
         spender: spenderHex,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
+        blockNumber: txResult.blockNumber,
       });
     });
 }

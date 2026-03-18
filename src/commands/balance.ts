@@ -52,6 +52,7 @@ export function registerBalanceCommand(program: Command): void {
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
+        blockNumber: result.blockNumber,
         from: account.address,
         to: toHex,
         amount: minimalToVara(amountMinimal),
