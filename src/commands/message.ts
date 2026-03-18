@@ -58,8 +58,8 @@ export function registerMessageCommand(program: Command): void {
           );
           gasLimit = gasInfo.min_limit.toBigInt();
           verbose(`Gas limit: ${gasLimit}`);
-        } catch {
-          verbose('Gas calculation failed (destination may be a user account), using gas limit 0');
+        } catch (error) {
+          verbose(`Gas calculation failed (destination may be a user account), using gas limit 0. Error: ${error}`);
           gasLimit = 0n;
         }
       }
