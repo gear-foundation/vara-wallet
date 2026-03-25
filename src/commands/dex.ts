@@ -3,7 +3,7 @@ import { Sails } from 'sails-js';
 import { GearApi } from '@gear-js/api';
 import { KeyringPair } from '@polkadot/keyring/types';
 import { getApi } from '../services/api';
-import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
+import { resolveAccount, AccountOptions } from '../services/account';
 import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
@@ -13,9 +13,6 @@ import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } fro
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Default factory address on Vara testnet. Override via --factory, VARA_DEX_FACTORY, or config. */
-const DEFAULT_TESTNET_FACTORY = '';
 
 const ZERO_ADDRESS = '0x' + '0'.repeat(64);
 const MAX_SLIPPAGE_BPS = 5000;
@@ -67,11 +64,6 @@ function resolveFactoryAddress(opts: { factory?: string }): string {
   if (config.dexFactoryAddress) {
     verbose(`Using factory from config: ${config.dexFactoryAddress}`);
     return addressToHex(config.dexFactoryAddress);
-  }
-
-  if (DEFAULT_TESTNET_FACTORY) {
-    verbose(`Using default testnet factory: ${DEFAULT_TESTNET_FACTORY}`);
-    return addressToHex(DEFAULT_TESTNET_FACTORY);
   }
 
   throw new CliError(
@@ -165,9 +157,13 @@ async function resolveTokenDirection(
 }
 
 async function resolveDeadline(api: GearApi, seconds?: number): Promise<bigint> {
+  const secs = seconds || DEFAULT_DEADLINE_SECONDS;
+  if (secs <= 0 || !Number.isFinite(secs)) {
+    throw new CliError(`Invalid deadline: ${secs} seconds. Must be a positive number.`, 'INVALID_DEADLINE');
+  }
   const now = await api.query.timestamp.now();
   const currentMs = BigInt(now.toString());
-  const offsetMs = BigInt((seconds || DEFAULT_DEADLINE_SECONDS) * 1000);
+  const offsetMs = BigInt(secs * 1000);
   return currentMs + offsetMs;
 }
 
@@ -184,7 +180,7 @@ export function computeMaxAmount(amount: bigint, slippageBps: number): bigint {
 }
 
 export function validateSlippage(bps: number): void {
-  if (!Number.isFinite(bps) || bps < 0 || bps > MAX_SLIPPAGE_BPS) {
+  if (!Number.isFinite(bps) || !Number.isInteger(bps) || bps < 0 || bps > MAX_SLIPPAGE_BPS) {
     throw new CliError(
       `Invalid slippage: ${bps} bps. Must be between 0 and ${MAX_SLIPPAGE_BPS} (0-50%).`,
       'INVALID_SLIPPAGE',
@@ -221,7 +217,7 @@ export function computePriceImpact(
 
   // Calculate impact as basis points for precision
   const impactBps = 10000n - (spotNumerator * 10000n / spotDenominator);
-  const impactPct = Number(impactBps) / 100;
+  const impactPct = Math.max(0, Number(impactBps) / 100);
   return impactPct.toFixed(2);
 }
 
@@ -350,7 +346,8 @@ async function ensureApproval(
     const resetTx = resetFunc(spender, 0n);
     resetTx.withAccount(account);
     await resetTx.calculateGas();
-    await resetTx.signAndSend();
+    const resetResult = await resetTx.signAndSend();
+    await resetResult.response();
     verbose('Allowance reset to 0');
   }
 
@@ -372,6 +369,7 @@ async function executeDexTx(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args: any[],
   account: KeyringPair,
+  extraOutput?: Record<string, unknown>,
 ): Promise<void> {
   const func = sails.services[serviceName].functions[methodName];
   const txBuilder = func(...args);
@@ -389,6 +387,7 @@ async function executeDexTx(
     blockNumber,
     messageId: result.msgId,
     result: response,
+    ...extraOutput,
   });
 }
 
@@ -477,21 +476,31 @@ export function registerDexCommand(program: Command): void {
         pairs = pairs.slice(0, limit);
       }
 
-      // Enrich with token symbols (concurrency-limited)
+      // Enrich with token symbols (concurrency-limited, race-safe)
+      const symbolMap = new Map<number, { token0Symbol?: string; token1Symbol?: string }>();
       const enrichTasks = pairs.flatMap((p, i) => [
         async () => {
           const sym = await queryTokenSymbol(api, p.token0);
-          if (sym) pairs[i] = { ...pairs[i], token0Symbol: sym } as typeof pairs[number] & { token0Symbol: string };
+          if (sym) {
+            const existing = symbolMap.get(i) || {};
+            symbolMap.set(i, { ...existing, token0Symbol: sym });
+          }
         },
         async () => {
           const sym = await queryTokenSymbol(api, p.token1);
-          if (sym) pairs[i] = { ...pairs[i], token1Symbol: sym } as typeof pairs[number] & { token1Symbol: string };
+          if (sym) {
+            const existing = symbolMap.get(i) || {};
+            symbolMap.set(i, { ...existing, token1Symbol: sym });
+          }
         },
       ]);
 
       await withConcurrency(enrichTasks, PAIRS_CONCURRENCY);
 
-      output({ factoryAddress, pairs });
+      // Merge symbols into pairs after all tasks complete
+      const enrichedPairs = pairs.map((p, i) => ({ ...p, ...symbolMap.get(i) }));
+
+      output({ factoryAddress, pairs: enrichedPairs });
     });
 
   // ── dex pool ──────────────────────────────────────────────────────────
@@ -508,7 +517,7 @@ export function registerDexCommand(program: Command): void {
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
       const pairAddress = await resolvePairAddress(factorySails, token0, token1);
-      const pairSails = await loadPairSails(api, pairAddress, { idl: options.idl ?? opts.idl });
+      const pairSails = await loadPairSails(api, pairAddress, {});
 
       const pairService = findDexService(pairSails, 'GetReserves');
 
@@ -533,8 +542,17 @@ export function registerDexCommand(program: Command): void {
         queryTokenSymbol(api, pairToken1),
       ]);
 
-      const price0Per1 = reserve1 > 0n ? Number(reserve0) / Number(reserve1) : null;
-      const price1Per0 = reserve0 > 0n ? Number(reserve1) / Number(reserve0) : null;
+      // Normalize prices by decimals to show human-readable exchange rates
+      let price0Per1: string | null = null;
+      let price1Per0: string | null = null;
+      if (reserve0 > 0n && reserve1 > 0n) {
+        const adj0 = dec0 !== null ? 10 ** dec0 : 1;
+        const adj1 = dec1 !== null ? 10 ** dec1 : 1;
+        const norm0 = Number(reserve0) / adj0;
+        const norm1 = Number(reserve1) / adj1;
+        price0Per1 = (norm0 / norm1).toString();
+        price1Per0 = (norm1 / norm0).toString();
+      }
 
       output({
         pairAddress,
@@ -576,7 +594,7 @@ export function registerDexCommand(program: Command): void {
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
       const pairAddress = await resolvePairAddress(factorySails, tokenIn, tokenOut);
-      const pairSails = await loadPairSails(api, pairAddress, { idl: options.idl ?? opts.idl });
+      const pairSails = await loadPairSails(api, pairAddress, {});
 
       const direction = await resolveTokenDirection(pairSails, tokenIn, tokenOut);
       const units = options.units ?? opts.units;
@@ -660,7 +678,7 @@ export function registerDexCommand(program: Command): void {
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
       const pairAddress = await resolvePairAddress(factorySails, tokenIn, tokenOut);
-      const pairSails = await loadPairSails(api, pairAddress, { idl: options.idl ?? opts.idl });
+      const pairSails = await loadPairSails(api, pairAddress, {});
 
       const direction = await resolveTokenDirection(pairSails, tokenIn, tokenOut);
       const units = options.units ?? opts.units;
@@ -701,7 +719,10 @@ export function registerDexCommand(program: Command): void {
 
         await executeDexTx(api, pairSails, pairService, 'SwapTokensForExactTokens', [
           amountOut, amountInMax, direction.is_token0_to_token1, deadline,
-        ], account);
+        ], account, {
+          priceImpactPct,
+          ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
+        });
       } else {
         // Swap exact tokens for tokens
         const amountIn = await resolveTokenAmount(api, inputToken, amount, units);
@@ -727,7 +748,10 @@ export function registerDexCommand(program: Command): void {
 
         await executeDexTx(api, pairSails, pairService, 'SwapExactTokensForTokens', [
           amountIn, amountOutMin, direction.is_token0_to_token1, deadline,
-        ], account);
+        ], account, {
+          priceImpactPct,
+          ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
+        });
       }
     });
 
@@ -757,7 +781,7 @@ export function registerDexCommand(program: Command): void {
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
       const pairAddress = await resolvePairAddress(factorySails, token0, token1);
-      const pairSails = await loadPairSails(api, pairAddress, { idl: options.idl ?? opts.idl });
+      const pairSails = await loadPairSails(api, pairAddress, {});
 
       // Get canonical token order from the pair
       const pairService = findDexService(pairSails, 'GetTokens');
@@ -785,11 +809,36 @@ export function registerDexCommand(program: Command): void {
       validatePositiveAmount(amountA, 'amount0');
       validatePositiveAmount(amountB, 'amount1');
 
-      const amountAMin = computeMinAmount(amountA, slippageBps);
-      const amountBMin = computeMinAmount(amountB, slippageBps);
+      // Query reserves to compute optimal amounts (handles off-ratio deposits)
+      const reserveService = findDexService(pairSails, 'GetReserves');
+      const reserves = await pairSails.services[reserveService].queries['GetReserves']().call();
+      const reserveTuple = reserves as unknown as [string, string];
+      const reserveA = BigInt(reserveTuple[0]);
+      const reserveB = BigInt(reserveTuple[1]);
+
+      let optimalA = amountA;
+      let optimalB = amountB;
+
+      if (reserveA > 0n && reserveB > 0n) {
+        // Compute optimal B for desired A: optimalB = amountA * reserveB / reserveA
+        const quotedB = amountA * reserveB / reserveA;
+        if (quotedB <= amountB) {
+          optimalA = amountA;
+          optimalB = quotedB;
+        } else {
+          // Compute optimal A for desired B: optimalA = amountB * reserveA / reserveB
+          const quotedA = amountB * reserveA / reserveB;
+          optimalA = quotedA;
+          optimalB = amountB;
+        }
+        verbose(`Optimal amounts: ${optimalA}/${optimalB} (from desired ${amountA}/${amountB})`);
+      }
+
+      const amountAMin = computeMinAmount(optimalA, slippageBps);
+      const amountBMin = computeMinAmount(optimalB, slippageBps);
       const deadline = await resolveDeadline(api, options.deadline ? parseInt(options.deadline, 10) : undefined);
 
-      verbose(`Add liquidity: ${amountA}/${amountB}, min ${amountAMin}/${amountBMin}, slippage ${slippageBps}bps`);
+      verbose(`Add liquidity: ${optimalA}/${optimalB}, min ${amountAMin}/${amountBMin}, slippage ${slippageBps}bps`);
 
       // Auto-approve both tokens
       if (!options.skipApprove && !opts.skipApprove) {
@@ -826,7 +875,7 @@ export function registerDexCommand(program: Command): void {
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
       const pairAddress = await resolvePairAddress(factorySails, token0, token1);
-      const pairSails = await loadPairSails(api, pairAddress, { idl: options.idl ?? opts.idl });
+      const pairSails = await loadPairSails(api, pairAddress, {});
 
       // Resolve LP token amount (the pair itself is the LP token)
       const units = options.units ?? opts.units;
@@ -845,6 +894,11 @@ export function registerDexCommand(program: Command): void {
       const deadline = await resolveDeadline(api, options.deadline ? parseInt(options.deadline, 10) : undefined);
 
       verbose(`Remove liquidity: ${lpAmount} LP, expected ${expectedA}/${expectedB}, min ${amountAMin}/${amountBMin}`);
+
+      // Approve LP tokens for the pair contract to burn
+      if (!opts.skipApprove) {
+        await ensureApproval(api, pairAddress, account.address, pairAddress, lpAmount, account);
+      }
 
       const liquidityService = findDexService(pairSails, 'RemoveLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'RemoveLiquidity', [

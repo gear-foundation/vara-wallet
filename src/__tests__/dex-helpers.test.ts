@@ -87,6 +87,10 @@ describe('DEX helpers', () => {
     it('rejects Infinity', () => {
       expect(() => validateSlippage(Infinity)).toThrow('Invalid slippage');
     });
+
+    it('rejects fractional bps', () => {
+      expect(() => validateSlippage(1.5)).toThrow('Invalid slippage');
+    });
   });
 
   describe('validatePositiveAmount', () => {
