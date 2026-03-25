@@ -57,8 +57,8 @@ export function toMinimalUnits(amount: string, decimals: number): bigint {
   const whole = parts[0] || '0';
   const rawFractional = parts[1] || '';
 
-  if (decimals === 0 && rawFractional.length > 0) {
-    throw new Error(`Invalid amount: "${amount}". Cannot have fractional digits when decimals is 0.`);
+  if (decimals === 0 && rawFractional.length > 0 && BigInt(rawFractional) !== 0n) {
+    throw new Error(`Invalid amount: "${amount}". Cannot have a non-zero fractional value when decimals is 0.`);
   }
 
   let fractional = rawFractional.slice(0, decimals);
