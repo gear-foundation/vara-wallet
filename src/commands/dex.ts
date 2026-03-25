@@ -476,29 +476,20 @@ export function registerDexCommand(program: Command): void {
         pairs = pairs.slice(0, limit);
       }
 
-      // Enrich with token symbols (concurrency-limited, race-safe)
-      const symbolMap = new Map<number, { token0Symbol?: string; token1Symbol?: string }>();
-      const enrichTasks = pairs.flatMap((p, i) => [
-        async () => {
-          const sym = await queryTokenSymbol(api, p.token0);
-          if (sym) {
-            const existing = symbolMap.get(i) || {};
-            symbolMap.set(i, { ...existing, token0Symbol: sym });
-          }
-        },
-        async () => {
-          const sym = await queryTokenSymbol(api, p.token1);
-          if (sym) {
-            const existing = symbolMap.get(i) || {};
-            symbolMap.set(i, { ...existing, token1Symbol: sym });
-          }
-        },
+      // Enrich with token symbols (concurrency-limited, functional — no shared mutation)
+      const symbolTasks = pairs.flatMap((p) => [
+        () => queryTokenSymbol(api, p.token0),
+        () => queryTokenSymbol(api, p.token1),
       ]);
 
-      await withConcurrency(enrichTasks, PAIRS_CONCURRENCY);
+      const symbols = await withConcurrency(symbolTasks, PAIRS_CONCURRENCY);
 
-      // Merge symbols into pairs after all tasks complete
-      const enrichedPairs = pairs.map((p, i) => ({ ...p, ...symbolMap.get(i) }));
+      // Merge symbols into pairs (symbols array is [pair0_sym0, pair0_sym1, pair1_sym0, ...])
+      const enrichedPairs = pairs.map((p, i) => ({
+        ...p,
+        ...(symbols[i * 2] && { token0Symbol: symbols[i * 2] }),
+        ...(symbols[i * 2 + 1] && { token1Symbol: symbols[i * 2 + 1] }),
+      }));
 
       output({ factoryAddress, pairs: enrichedPairs });
     });
@@ -542,16 +533,17 @@ export function registerDexCommand(program: Command): void {
         queryTokenSymbol(api, pairToken1),
       ]);
 
-      // Normalize prices by decimals to show human-readable exchange rates
+      // Normalize prices by decimals using BigInt arithmetic to avoid precision loss
+      const PRICE_SCALE = 10n ** 18n;
       let price0Per1: string | null = null;
       let price1Per0: string | null = null;
       if (reserve0 > 0n && reserve1 > 0n) {
-        const adj0 = dec0 !== null ? 10 ** dec0 : 1;
-        const adj1 = dec1 !== null ? 10 ** dec1 : 1;
-        const norm0 = Number(reserve0) / adj0;
-        const norm1 = Number(reserve1) / adj1;
-        price0Per1 = (norm0 / norm1).toString();
-        price1Per0 = (norm1 / norm0).toString();
+        const bigAdj0 = dec0 !== null ? 10n ** BigInt(dec0) : 1n;
+        const bigAdj1 = dec1 !== null ? 10n ** BigInt(dec1) : 1n;
+        const price0Per1Big = (reserve0 * bigAdj1 * PRICE_SCALE) / (reserve1 * bigAdj0);
+        price0Per1 = minimalToVara(price0Per1Big, 18);
+        const price1Per0Big = (reserve1 * bigAdj0 * PRICE_SCALE) / (reserve0 * bigAdj1);
+        price1Per0 = minimalToVara(price1Per0Big, 18);
       }
 
       output({
@@ -864,8 +856,10 @@ export function registerDexCommand(program: Command): void {
     .option('--units <type>', 'amount units: raw (default) or token (uses LP decimals)')
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
+    .option('--skip-approve', 'skip automatic token approval')
     .action(async (token0: string, token1: string, liquidity: string, options: {
       factory?: string; idl?: string; units?: string; slippage?: string; deadline?: string;
+      skipApprove?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
       const api = await getApi(opts.ws);
@@ -896,7 +890,7 @@ export function registerDexCommand(program: Command): void {
       verbose(`Remove liquidity: ${lpAmount} LP, expected ${expectedA}/${expectedB}, min ${amountAMin}/${amountBMin}`);
 
       // Approve LP tokens for the pair contract to burn
-      if (!opts.skipApprove) {
+      if (!options.skipApprove && !opts.skipApprove) {
         await ensureApproval(api, pairAddress, account.address, pairAddress, lpAmount, account);
       }
 
