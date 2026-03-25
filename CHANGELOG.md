@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-03-25
+
+### Added
+- Bundle two standard VFT IDLs enabling `vft` commands without `--idl` or meta-storage
+- Bundled IDL fallback in `loadSails()` with method-validated resolution via `idlValidator` callback
+- `toMinimalUnits()` utility for safe decimal-to-minimal-unit conversion with arbitrary decimals
+- `vft info` command for querying token name, symbol, decimals, and total supply
+- `vft allowance` command for querying token allowances
+- `vft transfer-from` command for approved token transfers
+- `vft mint` command for admin token minting
+- `vft burn` command for admin token burning
+- `--units raw|token` option on all VFT transaction commands for human-readable amount input
+- Unit tests for bundled IDL parsing and `toMinimalUnits` (13 new tests)
+
 ## [0.3.0] - 2026-03-18
 
 ### Added

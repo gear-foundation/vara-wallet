@@ -36,6 +36,36 @@ export function minimalToVara(minimal: bigint, decimals: number = VARA_DECIMALS)
 }
 
 /**
+ * Convert a human-readable token amount to minimal units using dynamic decimals.
+ * Uses string-based math to avoid floating-point issues.
+ * Uses 10n ** BigInt(decimals) to avoid overflow for decimals >= 16.
+ *
+ * Examples: toMinimalUnits("1.5", 6) → 1500000n
+ *           toMinimalUnits("1", 18) → 1000000000000000000n
+ */
+export function toMinimalUnits(amount: string, decimals: number): bigint {
+  if (decimals < 0 || !Number.isInteger(decimals)) {
+    throw new Error(`Invalid decimals: ${decimals}`);
+  }
+
+  const trimmed = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`Invalid amount: "${amount}". Must be a non-negative number.`);
+  }
+
+  const parts = trimmed.split('.');
+  const whole = parts[0] || '0';
+  let fractional = (parts[1] || '').slice(0, decimals);
+  fractional = fractional.padEnd(decimals, '0');
+
+  const multiplier = 10n ** BigInt(decimals);
+  const wholeBig = BigInt(whole) * multiplier;
+  const fractionalBig = fractional ? BigInt(fractional) : 0n;
+
+  return wholeBig + fractionalBig;
+}
+
+/**
  * Resolve amount based on --units flag.
  * Default: treat as VARA (multiply by 10^12).
  * With --units raw: passthrough as-is.
