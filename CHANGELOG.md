@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-25
+
+### Added
+- DEX command group (`dex`) with 6 subcommands for vara-amm trading: `pairs`, `pool`, `quote`, `swap`, `add-liquidity`, `remove-liquidity`
+- Bundled Factory and Pair IDLs from vara-amm for offline fallback
+- Auto-approval with zero-reset handling and `--skip-approve` opt-out
+- Slippage protection in basis points with bounds checking (0-5000 bps)
+- Price impact calculation from reserves, included in swap output JSON
+- Optimal liquidity amount calculation from pool reserves for off-ratio deposits
+- LP token approval handling for remove-liquidity
+- Generalized `bundledIdls` parameter in `loadSails()` for non-VFT IDL sets
+- `dexFactoryAddress` config field for factory address persistence
+- Unit tests for DEX IDL parsing, slippage math, price impact, and amount validation (20 new tests)
+
 ## [0.3.2] - 2026-03-25
 
 ### Fixed
