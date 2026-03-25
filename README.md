@@ -170,11 +170,20 @@ vara-wallet discover <programId> [--idl <path>]
 
 ### `vft` (Fungible Tokens)
 
+Works out of the box with standard VFT programs — no `--idl` needed (bundled IDL fallback).
+
 ```bash
+vara-wallet vft info <tokenProgram> [--idl <path>]
 vara-wallet vft balance <tokenProgram> [account] [--idl <path>]
-vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>]
-vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>]
+vara-wallet vft allowance <tokenProgram> <owner> <spender> [--idl <path>]
+vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token]
+vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units raw|token]
+vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units raw|token]
+vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token]
+vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units raw|token]
 ```
+
+Use `--units token` to pass human-readable amounts (e.g., `1.5` → auto-converts using on-chain decimals). Default is `raw` (minimal units).
 
 ### `voucher`
 
