@@ -103,7 +103,14 @@ async function resolveVftAmount(
       );
     }
     verbose(`Converting ${amount} tokens using ${decimals} decimals`);
-    return toMinimalUnits(amount, decimals);
+    try {
+      return toMinimalUnits(amount, decimals);
+    } catch (err) {
+      throw new CliError(
+        err instanceof Error ? err.message : String(err),
+        'INVALID_AMOUNT',
+      );
+    }
   }
 
   try {
@@ -194,12 +201,28 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Querying VFT info for ${tokenProgram}`);
 
-      const [name, symbol, decimals, totalSupply] = await Promise.all([
-        queryTokenField(sails, 'Name'),
-        queryTokenField(sails, 'Symbol'),
-        queryTokenField(sails, 'Decimals'),
-        queryTokenField(sails, 'TotalSupply'),
-      ]);
+      const fields = ['Name', 'Symbol', 'Decimals', 'TotalSupply'] as const;
+      const results: Record<string, unknown> = {};
+
+      for (const service of Object.values(sails.services)) {
+        const pending: Array<{ field: string; promise: Promise<unknown> }> = [];
+        for (const field of fields) {
+          if (!(field in results) && service.queries[field]) {
+            pending.push({ field, promise: service.queries[field]().call() });
+          }
+        }
+        if (pending.length > 0) {
+          const settled = await Promise.allSettled(pending.map((p) => p.promise));
+          for (let i = 0; i < pending.length; i++) {
+            if (settled[i].status === 'fulfilled') {
+              results[pending[i].field] = (settled[i] as PromiseFulfilledResult<unknown>).value;
+            }
+          }
+        }
+        if (fields.every((f) => f in results)) break;
+      }
+
+      const [name, symbol, decimals, totalSupply] = fields.map((f) => results[f] ?? null);
 
       const dec = decimals !== null ? Number(decimals) : null;
 
