@@ -97,6 +97,25 @@ vara-wallet --account agent call 0x1234... Service/Function --args '["arg1"]'
 vara-wallet --account agent program upload ./my_program.opt.wasm
 ```
 
+### Signing and verifying data
+
+Sign arbitrary data for proof-of-ownership or challenge-response flows. No network needed.
+
+```bash
+# Sign a challenge string
+RESULT=$(vara-wallet --account agent sign "challenge-from-faucet-api")
+SIGNATURE=$(echo $RESULT | jq -r .signature)
+
+# Verify a signature
+vara-wallet verify "challenge-from-faucet-api" $SIGNATURE --address kGioe8b7...
+# Output: { isValid: true, address: "0x...", cryptoType: "sr25519" }
+
+# Sign hex data
+vara-wallet --account agent sign 0xdeadbeef --hex
+```
+
+Uses raw sr25519 signing (no `<Bytes>` wrapping — different from Polkadot browser extension convention).
+
 ### Discovering program interfaces
 
 Before calling a program, discover its interface:
