@@ -20,6 +20,7 @@ import { registerCallCommand } from './commands/call';
 import { registerVftCommand } from './commands/vft';
 import { registerVoucherCommand } from './commands/voucher';
 import { registerEncodeCommand } from './commands/encode';
+import { registerSignCommand } from './commands/sign';
 import { registerTxCommand } from './commands/tx';
 import { registerSubscribeCommand } from './commands/subscribe';
 import { registerInboxCommand } from './commands/inbox';
@@ -80,6 +81,7 @@ registerCallCommand(program);
 registerVftCommand(program);
 registerVoucherCommand(program);
 registerEncodeCommand(program);
+registerSignCommand(program);
 registerTxCommand(program);
 
 // Register commands — Phase 4: Subscriptions & Event Store

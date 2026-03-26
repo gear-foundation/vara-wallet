@@ -290,6 +290,25 @@ vara-wallet encode <type> <value> [--metadata <path>] [--idl <path>] [--program 
 vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <id>] [--method <Service/Method>]
 ```
 
+### `sign` / `verify`
+
+Sign arbitrary data and verify signatures. Uses raw sr25519 signing (no `<Bytes>` wrapping). No network connection needed.
+
+```bash
+# Sign data (UTF-8 string by default)
+vara-wallet sign "hello world"
+# Output: { signature, publicKey, address, cryptoType }
+
+# Sign hex data
+vara-wallet sign 0xdeadbeef --hex
+
+# Verify a signature
+vara-wallet verify "hello world" 0x<signature> --address <signer-address>
+# Output: { isValid, address, cryptoType }
+```
+
+The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-length, valid hex chars). Without `--hex`, input is treated as a UTF-8 string.
+
 ## File Structure
 
 ```

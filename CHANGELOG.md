@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-03-26
+
+### Added
+- `sign` command for signing arbitrary data with your wallet key (raw sr25519, no `<Bytes>` wrapping)
+- `verify` command for verifying signatures against data and an address
+- Both commands support UTF-8 string and hex (`--hex`) input, with strict hex validation
+- Sign output includes `cryptoType` for interop transparency
+
 ## [0.4.0] - 2026-03-25
 
 ### Added
