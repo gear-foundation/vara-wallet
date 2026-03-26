@@ -17,7 +17,7 @@ Substrate (blockchain framework)
 **Key concepts:**
 - **Programs** = smart contracts (Rust → WASM, deployed on-chain)
 - **Messages** = how you interact with programs (not function calls — async messages)
-- **VARA** = native token (1 VARA = 10^10 minimal units)
+- **VARA** = native token (1 VARA = 10^12 minimal units, 12 decimals)
 - **Gas** = computational resource for message processing
 - **Mailbox** = inbox for messages addressed to your account
 

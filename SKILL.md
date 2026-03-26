@@ -224,7 +224,7 @@ export VARA_WS=wss://testnet.vara.network
 
 ## Units
 
-1 VARA = 10^10 minimal units. Amounts default to VARA.
+1 VARA = 10^12 minimal units (12 decimals). Amounts default to VARA.
 
 ```bash
 $VW transfer $TO 1.5                        # 1.5 VARA
