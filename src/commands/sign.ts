@@ -52,8 +52,11 @@ export function registerSignCommand(program: Command): void {
       const opts = program.optsWithGlobals() as AccountOptions;
       const message = parseData(data, options.hex);
 
-      if (!signature.startsWith('0x')) {
-        throw new CliError('Signature must be 0x-prefixed hex', 'INVALID_SIGNATURE_FORMAT');
+      if (!STRICT_HEX_RE.test(signature)) {
+        throw new CliError(
+          'Signature must be 0x-prefixed, even-length, valid hex',
+          'INVALID_SIGNATURE_FORMAT',
+        );
       }
 
       if (!options.address) {
