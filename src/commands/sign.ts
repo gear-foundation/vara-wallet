@@ -4,16 +4,17 @@ import { signatureVerify } from '@polkadot/util-crypto';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { output, verbose, CliError } from '../utils';
 
+const STRICT_HEX_RE = /^0x(?:[0-9a-fA-F]{2})*$/;
+
 function parseData(data: string, hex?: boolean): Uint8Array {
   if (hex) {
-    if (!data.startsWith('0x')) {
-      throw new CliError('Hex data must be 0x-prefixed', 'INVALID_HEX');
+    if (!STRICT_HEX_RE.test(data)) {
+      throw new CliError(
+        `Invalid hex data: "${data}" (must be 0x-prefixed, even-length, valid hex chars)`,
+        'INVALID_HEX',
+      );
     }
-    try {
-      return hexToU8a(data);
-    } catch {
-      throw new CliError(`Invalid hex data: "${data}"`, 'INVALID_HEX');
-    }
+    return hexToU8a(data);
   }
   return stringToU8a(data);
 }
@@ -36,6 +37,7 @@ export function registerSignCommand(program: Command): void {
         signature: u8aToHex(signature),
         publicKey: u8aToHex(account.publicKey),
         address: account.address,
+        cryptoType: account.type,
       });
     });
 

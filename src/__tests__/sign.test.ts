@@ -93,11 +93,21 @@ describe('verify (unit logic)', () => {
 });
 
 describe('input validation', () => {
-  it('hexToU8a is permissive — our command validates 0x prefix explicitly', () => {
+  it('hexToU8a is permissive — our command uses strict regex validation', () => {
     // hexToU8a does NOT throw on non-0x-prefixed or odd-length hex,
-    // which is why the sign command validates the 0x prefix before calling hexToU8a
+    // which is why the sign command validates with STRICT_HEX_RE before calling hexToU8a
     expect(hexToU8a('deadbeef')).toBeInstanceOf(Uint8Array);
     expect(hexToU8a('0xdead0')).toBeInstanceOf(Uint8Array);
+  });
+
+  it('strict hex regex rejects odd-length and invalid chars', () => {
+    const STRICT_HEX_RE = /^0x(?:[0-9a-fA-F]{2})*$/;
+    expect(STRICT_HEX_RE.test('0xdeadbeef')).toBe(true);
+    expect(STRICT_HEX_RE.test('0x')).toBe(true);
+    expect(STRICT_HEX_RE.test('0xdead0')).toBe(false); // odd length
+    expect(STRICT_HEX_RE.test('deadbeef')).toBe(false); // no 0x prefix
+    expect(STRICT_HEX_RE.test('0xzz')).toBe(false); // invalid chars
+    expect(STRICT_HEX_RE.test('0xDEAD')).toBe(true); // uppercase OK
   });
 
   it('signatureVerify throws on wrong-length signature', () => {
