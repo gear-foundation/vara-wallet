@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-03-27
+
+### Fixed
+- `wallet import --seed '//Alice'` (and other SURI strings) now works correctly — Commander.js was consuming `--seed` at the global level before the subcommand could parse it, causing a `MISSING_IMPORT_SOURCE` error
+- Same fix applies to `--mnemonic` on the import subcommand
+
 ## [0.5.0] - 2026-03-26
 
 ### Added

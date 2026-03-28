@@ -54,18 +54,21 @@ export function registerWalletCommand(program: Command): void {
     .option('--json <path>', 'path to JSON keystore file')
     .option('--passphrase <passphrase>', 'passphrase to encrypt the imported wallet')
     .option('--no-encrypt', 'store unencrypted (not recommended)')
-    .action(async (options: { name: string; mnemonic?: string; seed?: string; json?: string; passphrase?: string; encrypt: boolean }) => {
+    .action(async (options: { name: string; mnemonic?: string; seed?: string; json?: string; passphrase?: string; encrypt: boolean }, command: Command) => {
+      // Merge with global opts so --seed/--mnemonic work regardless of which
+      // Commander level parsed them (global program vs. subcommand).
+      const allOpts = command.optsWithGlobals() as typeof options;
       let keyring;
 
-      if (options.mnemonic) {
-        keyring = await GearKeyring.fromMnemonic(options.mnemonic, options.name);
-      } else if (options.seed) {
-        keyring = await GearKeyring.fromSuri(options.seed, options.name);
-      } else if (options.json) {
+      if (allOpts.mnemonic) {
+        keyring = await GearKeyring.fromMnemonic(allOpts.mnemonic, allOpts.name);
+      } else if (allOpts.seed) {
+        keyring = await GearKeyring.fromSuri(allOpts.seed, allOpts.name);
+      } else if (allOpts.json) {
         const fs = await import('fs');
-        const raw = fs.readFileSync(options.json, 'utf-8');
+        const raw = fs.readFileSync(allOpts.json, 'utf-8');
         const jsonData = JSON.parse(raw);
-        const importPassphrase = options.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
+        const importPassphrase = allOpts.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
         try {
           keyring = GearKeyring.fromJson(jsonData, importPassphrase);
         } catch {
@@ -82,20 +85,20 @@ export function registerWalletCommand(program: Command): void {
       }
 
       let passphrase: string | undefined;
-      if (options.encrypt) {
-        passphrase = options.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
+      if (allOpts.encrypt) {
+        passphrase = allOpts.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
         if (!passphrase) {
           passphrase = ensurePassphraseFile();
         }
       }
 
       const json = keyring.toJson(passphrase);
-      const filePath = saveWallet(options.name, json);
+      const filePath = saveWallet(allOpts.name, json);
 
       output({
         address: keyring.address,
-        name: options.name,
-        encrypted: options.encrypt,
+        name: allOpts.name,
+        encrypted: allOpts.encrypt,
         path: filePath,
       });
     });
