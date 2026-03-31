@@ -39,9 +39,10 @@ export async function validateVoucher(
       try {
         const header = await api.rpc.chain.getHeader();
         const currentBlock = header.number.toNumber();
-        if (typeof details.expiry === 'number' && currentBlock >= details.expiry) {
+        const expiryBlock = Number(details.expiry);
+        if (expiryBlock && currentBlock >= expiryBlock) {
           throw new CliError(
-            `Voucher expired at block ${details.expiry} (current: ${currentBlock})`,
+            `Voucher expired at block ${expiryBlock} (current: ${currentBlock})`,
             'VOUCHER_EXPIRED',
           );
         }

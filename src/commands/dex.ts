@@ -446,7 +446,6 @@ interface DexGlobalOptions {
   slippage?: string;
   deadline?: string;
   skipApprove?: boolean;
-  voucher?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +728,7 @@ export function registerDexCommand(program: Command): void {
         ], account, {
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
-        }, options.voucher ?? opts.voucher, pairAddress);
+        }, options.voucher, pairAddress);
       } else {
         // Swap exact tokens for tokens
         const amountIn = await resolveTokenAmount(api, inputToken, amount, units);
@@ -758,7 +757,7 @@ export function registerDexCommand(program: Command): void {
         ], account, {
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
-        }, options.voucher ?? opts.voucher, pairAddress);
+        }, options.voucher, pairAddress);
       }
     });
 
@@ -857,7 +856,7 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'AddLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'AddLiquidity', [
         amountA, amountB, amountAMin, amountBMin, deadline,
-      ], account, undefined, options.voucher ?? opts.voucher, pairAddress);
+      ], account, undefined, options.voucher, pairAddress);
     });
 
   // ── dex remove-liquidity ──────────────────────────────────────────────
@@ -914,6 +913,6 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'RemoveLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'RemoveLiquidity', [
         lpAmount, amountAMin, amountBMin, deadline,
-      ], account, undefined, options.voucher ?? opts.voucher, pairAddress);
+      ], account, undefined, options.voucher, pairAddress);
     });
 }

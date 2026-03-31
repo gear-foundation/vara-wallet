@@ -197,6 +197,7 @@ export function registerMessageCommand(program: Command): void {
 
       if (options.voucher) {
         const sourceHex = addressToHex(account.address);
+        // programId omitted: reply destination is resolved on-chain from the original message
         await validateVoucher(api, sourceHex, options.voucher);
       }
 
