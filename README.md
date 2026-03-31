@@ -65,6 +65,7 @@ npm link
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
 | `VARA_META_STORAGE` | Meta-storage URL for IDL fetching | — |
 | `VARA_DEX_FACTORY` | DEX factory program address | — |
+| `VARA_FAUCET_URL` | Faucet API URL | `https://idea.gear-tech.io/faucet` |
 
 ## Account Resolution
 
@@ -109,6 +110,16 @@ Initialize wallet infrastructure with a default wallet.
 vara-wallet init [--name <name>]
 ```
 
+### `faucet`
+
+Request testnet TVARA tokens. Proves address ownership via a challenge-sign-claim flow. Automatically connects to testnet RPC.
+
+```bash
+vara-wallet faucet [address] [--faucet-url <url>]
+```
+
+Skips the request if the account already has >= 1000 TVARA. Faucet URL resolves from: `--faucet-url` flag > `VARA_FAUCET_URL` env > `config.faucetUrl` > default.
+
 ### `wallet`
 
 ```bash
@@ -117,6 +128,12 @@ vara-wallet wallet import [--name <n>] [--mnemonic <m>] [--seed <s>] [--json <pa
 vara-wallet wallet list
 vara-wallet wallet export <name> [--decrypt]
 vara-wallet wallet default [name]
+```
+
+### `node`
+
+```bash
+vara-wallet node info
 ```
 
 ### `balance` / `transfer`
@@ -313,7 +330,7 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 
 ```
 ~/.vara-wallet/
-  config.json          # wsEndpoint, defaultAccount, metaStorageUrl, dexFactoryAddress
+  config.json          # wsEndpoint, defaultAccount, metaStorageUrl, dexFactoryAddress, faucetUrl
   .passphrase          # Auto-generated or human-provided (0600)
   events.db            # SQLite event store (subscribe/inbox/events)
   wallets/
@@ -339,6 +356,11 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `PAIR_NOT_FOUND` | Trading pair doesn't exist |
 | `TOKEN_MISMATCH` | Tokens don't match pair |
 | `INVALID_SLIPPAGE` | Slippage out of range (0-5000 bps) |
+| `CONNECTION_FAILED` | Network unreachable or request timed out |
+| `FAUCET_ERROR` | Faucet request failed |
+| `FAUCET_LIMIT` | Faucet daily/hourly limit reached |
+| `RATE_LIMITED` | Too many requests (429) |
+| `AUTH_ERROR` | Signature verification failed |
 
 ## Development
 
