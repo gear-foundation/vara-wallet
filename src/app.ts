@@ -26,6 +26,7 @@ import { registerSubscribeCommand } from './commands/subscribe';
 import { registerInboxCommand } from './commands/inbox';
 import { registerEventsCommand } from './commands/events';
 import { registerDexCommand } from './commands/dex';
+import { registerFaucetCommand } from './commands/faucet';
 
 installGlobalErrorHandler();
 
@@ -65,6 +66,7 @@ registerInitCommand(program);
 registerWalletCommand(program);
 registerBalanceCommand(program);
 registerNodeCommand(program);
+registerFaucetCommand(program);
 
 // Register commands — Phase 2
 registerMessageCommand(program);
