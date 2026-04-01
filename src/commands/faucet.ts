@@ -5,7 +5,7 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { readConfig } from '../services/config';
 import { output, verbose, CliError, minimalToVara, varaToMinimal } from '../utils';
 
-const DEFAULT_FAUCET_URL = 'https://idea.gear-tech.io/faucet';
+const DEFAULT_FAUCET_URL = 'https://faucet.gear-tech.io';
 const DEFAULT_TESTNET_WS = 'wss://testnet.vara.network';
 const FETCH_TIMEOUT_MS = 10_000;
 const MIN_BALANCE_TVARA = '1000';

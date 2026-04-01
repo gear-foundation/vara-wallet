@@ -65,7 +65,7 @@ npm link
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
 | `VARA_META_STORAGE` | Meta-storage URL for IDL fetching | — |
 | `VARA_DEX_FACTORY` | DEX factory program address | — |
-| `VARA_FAUCET_URL` | Faucet API URL | `https://idea.gear-tech.io/faucet` |
+| `VARA_FAUCET_URL` | Faucet API URL | `https://faucet.gear-tech.io` |
 
 ## Account Resolution
 
