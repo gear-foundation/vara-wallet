@@ -137,6 +137,34 @@ async function resolveIdl(
 }
 
 /**
+ * Parse a local IDL file without requiring an API connection or programId.
+ * Useful for encoding constructor payloads before deployment.
+ */
+export async function parseIdlFile(idlPath: string): Promise<Sails> {
+  const parser = await getParser();
+  const sails = new Sails(parser);
+  let idlString: string;
+  try {
+    idlString = fs.readFileSync(idlPath, 'utf-8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      throw new CliError(`IDL file not found: ${idlPath}`, 'IDL_FILE_NOT_FOUND');
+    }
+    throw new CliError(`Failed to read IDL file: ${idlPath}`, 'IDL_FILE_ERROR');
+  }
+  try {
+    sails.parseIdl(idlString);
+  } catch (err) {
+    throw new CliError(
+      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
+      'IDL_PARSE_ERROR',
+    );
+  }
+  return sails;
+}
+
+/**
  * Describe a Sails type definition as a human-readable string.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
