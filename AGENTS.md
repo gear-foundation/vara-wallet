@@ -93,8 +93,11 @@ vara-wallet --account agent message send 0x1234... --payload 0xdeadbeef --value 
 # Call a Sails function (state-changing)
 vara-wallet --account agent call 0x1234... Service/Function --args '["arg1"]'
 
-# Upload a program
-vara-wallet --account agent program upload ./my_program.opt.wasm
+# Upload a program (raw payload)
+vara-wallet --account agent program upload ./my_program.opt.wasm --payload 0x00
+
+# Upload a program with IDL-based constructor encoding
+vara-wallet --account agent program upload ./my_program.opt.wasm --idl ./program.idl --args '["MyToken", "MTK", 18]'
 ```
 
 ### Signing and verifying data
@@ -358,8 +361,8 @@ vara-wallet balance
 ### Deploy and interact with a program
 
 ```bash
-# 1. Upload WASM
-UPLOAD=$(vara-wallet --account agent program upload ./my_program.opt.wasm --payload 0x00)
+# 1. Upload WASM with IDL-based constructor encoding (auto-selects constructor)
+UPLOAD=$(vara-wallet --account agent program upload ./my_program.opt.wasm --idl ./my_program.idl --args '["MyToken", "MTK", 18]')
 PROGRAM_ID=$(echo $UPLOAD | jq -r .programId)
 
 # 2. Discover its interface

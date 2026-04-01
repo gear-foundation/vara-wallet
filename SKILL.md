@@ -72,8 +72,8 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | Command | Purpose |
 |---------|---------|
 | `$VW transfer <to> <amount>` | Transfer VARA tokens |
-| `$VW program upload <wasm> [--payload <hex>] [--value <v>] [--units vara\|raw]` | Upload + init program |
-| `$VW program deploy <codeId> [--payload <hex>] [--value <v>] [--units vara\|raw]` | Deploy from existing code |
+| `$VW program upload <wasm> [--idl <path>] [--init <name>] [--args <json>] [--payload <hex>] [--value <v>]` | Upload + init program (use --idl for auto-encoding) |
+| `$VW program deploy <codeId> [--idl <path>] [--init <name>] [--args <json>] [--payload <hex>] [--value <v>]` | Deploy from existing code (use --idl for auto-encoding) |
 | `$VW code upload <wasm>` | Upload code blob only |
 | `$VW message send <dest> [--payload <hex>] [--value <v>]` | Send message to any actor (program, user, wallet) — also usable for VARA transfers with custom payload |
 | `$VW message reply <mid> [--payload <hex>]` | Reply to a message |

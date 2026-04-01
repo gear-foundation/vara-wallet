@@ -156,10 +156,23 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
-vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>]
+```
+
+Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array. `--payload` and `--idl` are mutually exclusive.
+
+```bash
+# Deploy with IDL-based constructor encoding (auto-selects "New" constructor)
+vara-wallet program upload ./demo.opt.wasm --idl ./demo.idl --args '["MyToken", "MTK", 18]'
+
+# Explicit constructor name
+vara-wallet program upload ./demo.opt.wasm --idl ./demo.idl --init New --args '["MyToken", "MTK", 18]'
+
+# Deploy from existing code ID
+vara-wallet program deploy 0xCODE_ID --idl ./demo.idl --args '["MyToken", "MTK", 18]'
 ```
 
 ### `code`
