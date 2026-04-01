@@ -145,7 +145,7 @@ export async function parseIdlFile(idlPath: string): Promise<Sails> {
   const sails = new Sails(parser);
   let idlString: string;
   try {
-    idlString = fs.readFileSync(idlPath, 'utf-8');
+    idlString = await fs.promises.readFile(idlPath, 'utf-8');
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
