@@ -31,13 +31,20 @@ export function registerConfigCommand(program: Command): void {
     .description('Get a configuration value')
     .argument('<key>', `config key (${VALID_KEYS.join(', ')})`)
     .action((key: string) => {
+      const cfg = readConfig();
+
+      if (key === 'network') {
+        const network = Object.entries(NETWORK_MAP).find(([, url]) => url === cfg.wsEndpoint)?.[0];
+        output({ key: 'network', value: network ?? null });
+        return;
+      }
+
       if (!VALID_KEYS.includes(key as keyof VaraWalletConfig)) {
         throw new CliError(
-          `Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(', ')}`,
+          `Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(', ')}, network`,
           'INVALID_CONFIG_KEY',
         );
       }
-      const cfg = readConfig();
       const value = cfg[key as keyof VaraWalletConfig];
       output({ key, value: value ?? null });
     });

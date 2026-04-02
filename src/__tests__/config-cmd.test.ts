@@ -72,6 +72,24 @@ describe('NETWORK_MAP', () => {
   });
 });
 
+describe('config get network alias', () => {
+  it('reverse-maps wsEndpoint to network name', () => {
+    writeConfig({ wsEndpoint: 'wss://testnet.vara.network' });
+    const cfg = readConfig();
+    const { NETWORK_MAP } = require('../commands/config-cmd');
+    const network = Object.entries(NETWORK_MAP).find(([, url]) => url === cfg.wsEndpoint)?.[0];
+    expect(network).toBe('testnet');
+  });
+
+  it('returns null for unknown wsEndpoint', () => {
+    writeConfig({ wsEndpoint: 'wss://custom.endpoint' });
+    const cfg = readConfig();
+    const { NETWORK_MAP } = require('../commands/config-cmd');
+    const network = Object.entries(NETWORK_MAP).find(([, url]) => url === cfg.wsEndpoint)?.[0];
+    expect(network).toBeUndefined();
+  });
+});
+
 describe('--network integration', () => {
   const { NETWORK_MAP } = require('../commands/config-cmd');
   const { CliError } = require('../utils/errors');

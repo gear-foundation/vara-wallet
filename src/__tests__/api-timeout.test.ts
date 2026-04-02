@@ -3,14 +3,12 @@ import { CliError } from '../utils/errors';
 // Test the withTimeout pattern used in api.ts
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CliError(message, 'CONNECTION_TIMEOUT')), ms);
+  });
   return Promise.race([
-    promise.then((v) => {
-      clearTimeout(timer);
-      return v;
-    }),
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new CliError(message, 'CONNECTION_TIMEOUT')), ms);
-    }),
+    promise.finally(() => clearTimeout(timer)),
+    timeoutPromise,
   ]);
 }
 
@@ -59,5 +57,13 @@ describe('withTimeout', () => {
     await expect(
       withTimeout(failing, 10000, 'timeout msg'),
     ).rejects.toThrow('original');
+  });
+
+  it('clears timer on fast rejection (no leaked timers)', async () => {
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+    const failing = Promise.reject(new Error('fast fail'));
+    await withTimeout(failing, 10000, 'msg').catch(() => {});
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 });
