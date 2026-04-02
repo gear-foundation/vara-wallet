@@ -32,7 +32,7 @@ npm install -g vara-wallet
 ### From source
 
 ```bash
-git clone https://github.com/ukint-vs/vara-wallet.git
+git clone https://github.com/gear-foundation/vara-wallet.git
 cd vara-wallet
 npm install --legacy-peer-deps
 npm run build

@@ -42,7 +42,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ukint-vs/vara-wallet.git"
+    "url": "git+https://github.com/gear-foundation/vara-wallet.git"
   },
   "keywords": [
     "vara",
@@ -55,9 +55,9 @@
     "polkadot",
     "ai-agent"
   ],
-  "author": "ukint-vs",
+  "author": "gear-foundation",
   "bugs": {
-    "url": "https://github.com/ukint-vs/vara-wallet/issues"
+    "url": "https://github.com/gear-foundation/vara-wallet/issues"
   },
-  "homepage": "https://github.com/ukint-vs/vara-wallet#readme"
+  "homepage": "https://github.com/gear-foundation/vara-wallet#readme"
 }
