@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-04-02
+
+### Added
+- `--idl`, `--init`, `--args` options on `program upload` and `program deploy` for automatic Sails constructor payload encoding
+- Auto-selects constructor when IDL has exactly one; lists available constructors when multiple exist
+- Constructor argument count validation prevents silent zero-fill on missing args
+- `parseIdlFile()` utility for offline IDL parsing without API connection
+- 14 new tests covering all constructor encoding paths and error cases
+
 ## [0.7.0] - 2026-03-31
 
 ### Added
