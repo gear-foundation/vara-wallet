@@ -1,3 +1,5 @@
+import { isVerboseEnabled } from './output';
+
 /**
  * Extract a string message from anything that might be thrown. Preferred
  * over inline `err instanceof Error ? err.message : String(err)` so error
@@ -34,15 +36,14 @@ export function outputError(error: unknown): void {
   const formatted = formatError(routed);
 
   // Verbose cause echo: surface the underlying error code + message before
-  // the structured JSON. Gated on globalOptions.verbose to avoid log noise.
-  // Wrapped in try/catch so EPIPE (stderr closed by a piping consumer)
-  // doesn't crash the CLI tail.
+  // the structured JSON. Wrapped in try/catch so EPIPE (stderr closed by a
+  // piping consumer) doesn't crash the CLI tail.
   if (isVerboseEnabled()) {
     try {
       const cause = extractCauseChain(error);
       if (cause) process.stderr.write(`[verbose] cause: ${cause}\n`);
     } catch {
-      // ignore — verbose is best-effort
+      // best-effort
     }
   }
 
@@ -89,17 +90,6 @@ export function formatError(error: unknown): { error: string; code: string } & E
     ? JSON.stringify(error)
     : String(error);
   return { error: msg, code: 'UNKNOWN_ERROR' };
-}
-
-function isVerboseEnabled(): boolean {
-  try {
-    // Lazy require to avoid circular import between utils/output and utils/errors.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const out = require('./output');
-    return typeof out.isVerboseEnabled === 'function' ? out.isVerboseEnabled() : false;
-  } catch {
-    return false;
-  }
 }
 
 function extractCauseChain(error: unknown): string | undefined {
@@ -289,11 +279,12 @@ export interface TransportContext {
  * `reason` subcode. Returns `null` when the value doesn't match any
  * transport signature — caller falls through to the existing classifier.
  *
- * Extraction order (per plan / issue #58):
+ * Extraction order:
  *   1. err.code                (Node net errors thrown directly)
  *   2. err.error?.code         (ws library wrap: { error: NetError, message, type, target })
- *   3. err.message regex       (string-only signals: 'ENOTFOUND', '1006', 'Unexpected response: 200')
- *   4. ctx.cause               (last resort — captured by on('error') listener)
+ *   3. err.cause?.code         (Node fetch wraps the underlying network error as err.cause)
+ *   4. err.message regex       (string-only signals: 'ENOTFOUND', '1006', 'Unexpected response: 200')
+ *   5. ctx.cause               (last resort — captured by on('error') listener)
  *
  * If nothing matches and we have at least an endpoint or a captured cause,
  * emit `{ reason: 'unknown', cause: ... }`. Otherwise return null.

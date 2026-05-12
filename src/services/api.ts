@@ -124,10 +124,9 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       markStage('connect_begin', { endpoint, cachedMetadataKeys: cachedKeyCount });
       const connectPromise = (async (): Promise<GearApi> => {
         // Construct WsProvider explicitly (instead of GearApi.create({ providerAddress }))
-        // so we can attach an error listener and capture the underlying Node socket
-        // error code (ENOTFOUND / ECONNREFUSED / ETIMEDOUT) before WsProvider's
-        // browser-style Event rejection laundering strips it. This is what closes
-        // the `{"error":"{}","code":"UNKNOWN_ERROR"}` opacity from issue #58.
+        // so we can attach an error listener and capture the underlying Node
+        // socket error code (ENOTFOUND / ECONNREFUSED / ETIMEDOUT) before
+        // WsProvider's browser-style Event rejection laundering strips it.
         const provider = new WsProvider(endpoint, /* autoConnect */ false);
         let lastSocketError: { code?: string; message?: string } | undefined;
         const unsubError = provider.on('error', (e: unknown) => {
@@ -139,12 +138,15 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
         });
 
         const attemptConnect = async (metadata: Record<string, `0x${string}`>): Promise<GearApi> => {
+          // Clear any cause captured by a prior attempt — the metadata-cache
+          // retry calls attemptConnect twice and stale state would otherwise
+          // leak into the second attempt's classification.
+          lastSocketError = undefined;
           try {
-            // GearApi.create both opens the provider (if not connected) AND
-            // fetches genesis/metadata. WsProvider.connect() can resolve
-            // before the WS handshake actually completes, so transport
-            // failures surface inside GearApi.create rather than in our
-            // explicit provider.connect() — both have to be inside the catch.
+            // WsProvider.connect() can resolve before the WS handshake
+            // actually completes; transport failures surface inside
+            // GearApi.create rather than in our explicit provider.connect().
+            // Both have to be inside the catch.
             await withTimeout(
               provider.connect(),
               CONNECTION_TIMEOUT_MS,
@@ -156,16 +158,15 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
               `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
             );
           } catch (rawErr) {
-            // Metadata-cache mismatch errors must propagate raw — the caller
-            // detects them via isMetadataError() and retries with an empty
-            // cache. Don't translate them to TRANSPORT_ERROR here.
+            // Metadata-cache mismatch errors must propagate raw so the caller
+            // can detect them via isMetadataError() and retry with an empty
+            // cache.
             if (isMetadataError(rawErr)) throw rawErr;
-            // Post-mortem DNS probe: Node's built-in WebSocket sanitizes the
-            // underlying error to "Received network error or non-101 status
-            // code" so we can't read .code directly. On failure path only,
-            // do a quick dns.lookup on the endpoint host — if it fails, the
-            // root cause was DNS. Only runs once per failed connect, never
-            // on the success path.
+            // Post-mortem DNS probe: Node's built-in WebSocket sanitizes
+            // the underlying error to "Received network error or non-101
+            // status code", so we can't read .code directly. A quick
+            // dns.lookup on the endpoint host disambiguates DNS failure
+            // from protocol mismatch. Failure path only.
             const probed = await probeTransportCause(endpoint, lastSocketError);
             const cli = classifyTransportError(rawErr, {
               endpoint,

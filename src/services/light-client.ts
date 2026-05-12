@@ -27,7 +27,7 @@ async function fetchChainSpec(): Promise<string> {
   } catch (err) {
     // Network-layer fetch failures (DNS, ECONNREFUSED, TLS) — route through
     // the unified transport classifier so --light failures don't show up as
-    // opaque UNKNOWN_ERROR (issue #58 scope expansion).
+    // opaque UNKNOWN_ERROR.
     const cli = classifyTransportError(err, { endpoint: VARA_CHAIN_SPEC_RPC });
     throw cli ?? err;
   }
