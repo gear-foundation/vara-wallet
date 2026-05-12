@@ -108,6 +108,7 @@ function isRetriableTransportError(err: unknown): boolean {
 // flaky endpoint.
 const RETRY_BACKOFF_MS = [0, 250, 1000] as const;
 
+/** Returns baseMs ± 50% jitter, floored and clamped >= 0. */
 function jitteredBackoff(baseMs: number): number {
   if (baseMs <= 0) return 0;
   return Math.max(0, Math.floor(baseMs + (Math.random() - 0.5) * baseMs));
@@ -172,25 +173,52 @@ async function connectOnce(
     }
   } finally {
     // Detach the connect-time error listener now that the outcome is known.
+    // Runtime errors mid-call surface through formatError's transport fallback
+    // instead, so we don't need a long-lived listener after handshake.
     try { unsubError(); } catch { /* ignore */ }
   }
+}
+
+// Accept the common truthy spellings for VARA_NO_RETRY. A CI operator who
+// writes `VARA_NO_RETRY: true` in YAML or `=yes` in shell expects the
+// documented opt-out behavior; rejecting anything but the literal '1' would
+// silently inflate suite wallclock 3× exactly where the operator asked for
+// strict single-attempt semantics.
+const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+function isNoRetry(): boolean {
+  const raw = process.env.VARA_NO_RETRY;
+  if (typeof raw !== 'string') return false;
+  return TRUTHY_ENV_VALUES.has(raw.trim().toLowerCase());
 }
 
 /**
  * Wrap connectOnce with transparent retry for transient TRANSPORT_ERROR
  * subcodes (timeout, ws_close_abnormal). Permanent reasons fail fast.
- * Up to 3 attempts total; ±50% jitter on backoff. Opt-out via
- * VARA_NO_RETRY=1 for scripts that need strict single-attempt semantics.
+ * Up to RETRY_BACKOFF_MS.length attempts total; ±50% jitter on backoff.
+ * Opt-out via VARA_NO_RETRY (accepts '1', 'true', 'yes', 'on') for scripts
+ * that need strict single-attempt semantics. Bails between attempts when
+ * the process is shutting down (Ctrl-C) so a flaky endpoint doesn't keep
+ * the CLI alive for ~30s after the operator asked to quit.
+ *
+ * @param connectFn Injection seam for tests; production callers should omit
+ *   this and let it default to connectOnce.
+ * @param shuttingDownFn Injection seam for tests; defaults to the module-level
+ *   isShuttingDown() which reads disconnectApi()'s shutdown flag.
  */
 async function retryConnect(
   endpoint: string,
   metadata: Record<string, `0x${string}`>,
   connectFn: (endpoint: string, metadata: Record<string, `0x${string}`>) => Promise<GearApi> = connectOnce,
+  shuttingDownFn: () => boolean = isShuttingDown,
 ): Promise<GearApi> {
-  const maxAttempts = process.env.VARA_NO_RETRY === '1' ? 1 : RETRY_BACKOFF_MS.length;
+  const maxAttempts = isNoRetry() ? 1 : RETRY_BACKOFF_MS.length;
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) {
+      // Bail before sleeping or making the next attempt if shutdown started
+      // (Ctrl-C, exit handler) — otherwise we'd hang ~30s past the signal.
+      if (shuttingDownFn()) throw lastErr;
       const baseMs = RETRY_BACKOFF_MS[attempt];
       const delay = jitteredBackoff(baseMs);
       const reason = (lastErr instanceof CliError
@@ -198,6 +226,8 @@ async function retryConnect(
         : undefined) ?? 'transient';
       verbose(`retry ${attempt}/${maxAttempts - 1} after transport ${reason} (${delay}ms backoff)`);
       if (delay > 0) await sleep(delay);
+      // Second check: Ctrl-C may have landed during the sleep window.
+      if (shuttingDownFn()) throw lastErr;
     }
     try {
       return await connectFn(endpoint, metadata);
@@ -212,13 +242,19 @@ async function retryConnect(
   throw lastErr;
 }
 
-// Internal helpers exported for tests. Not part of the public API.
+// Internal helpers exported for tests. NOT part of the public API. Project
+// convention: when a service module needs to expose internals to its
+// `src/__tests__/` counterpart without polluting the import surface for
+// commands, attach them to a single `__testing` const. Do not consume from
+// production code.
 export const __testing = {
   retryConnect,
   isRetriableTransportError,
   jitteredBackoff,
+  isNoRetry,
   TRANSIENT_TRANSPORT_REASONS,
   RETRY_BACKOFF_MS,
+  TRUTHY_ENV_VALUES,
 };
 
 export async function getApi(wsEndpoint?: string): Promise<GearApi> {

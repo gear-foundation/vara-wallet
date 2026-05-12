@@ -420,11 +420,13 @@ Backoff schedule is `[0, 250, 1000]ms` with ±50% jitter per attempt (prevents t
 [verbose] retry 2/2 after transport timeout (500ms backoff)
 ```
 
-**Opt-out:** set `VARA_NO_RETRY=1` for strict single-attempt semantics.
+**Opt-out:** set `VARA_NO_RETRY` to any of `1`, `true`, `yes`, or `on` (case-insensitive) for strict single-attempt semantics. Any other value (or unset) keeps retry on.
+
+**Worst-case wallclock:** connect-with-retry can take up to ~32s (3 attempts × 10s timeout each + jittered backoffs). If the metadata cache is also poisoned and triggers the `isMetadataError` clear-and-retry branch, the composed worst case is ~62s. The median is unchanged at ~0.5s on a warm cache. Callers wrapping `getApi()` in an outer deadline should size the deadline against ~32s, not ~10s.
 
 In CI, set `VARA_NO_RETRY=1` if strict per-command timing matters — a flaky endpoint can otherwise inflate suite wallclock by ~3× because every command retries up to 3 times. Agent skill packs should NOT set this by default; the retry default is what makes most session-flake invisible to operators.
 
-This obsoletes the agent-side retry-loop workaround documented in `gear-foundation/vara-agent-network` PR #37 — call `vara-wallet` once and let it handle transient flake. Permanent failures still surface immediately, so the structured `reason` switch from the table above remains the right tool for routing (retry vs swap endpoint vs escalate).
+This renders the agent-side retry-loop workaround in `gear-foundation/vara-agent-network` PR #37 (already merged) redundant — call `vara-wallet` once and let it handle transient flake; downstream skill packs can drop their custom retry. Permanent failures still surface immediately, so the structured `reason` switch from the table above remains the right tool for routing (retry vs swap endpoint vs escalate).
 
 ## Addresses
 

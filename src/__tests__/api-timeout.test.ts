@@ -3,7 +3,7 @@ import { CliError, classifyTransportError, formatError } from '../utils/errors';
 import { __testing } from '../services/api';
 import { setOutputOptions } from '../utils/output';
 
-const { retryConnect, isRetriableTransportError, jitteredBackoff } = __testing;
+const { retryConnect, isRetriableTransportError, jitteredBackoff, isNoRetry } = __testing;
 
 // Test the withTimeout pattern used in api.ts
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -103,6 +103,38 @@ const permanent = (reason: string) =>
   new CliError(`transport ${reason}`, 'TRANSPORT_ERROR', { reason, endpoint: ENDPOINT });
 const fakeApi = { specVersion: 'fake' } as unknown as GearApi;
 
+describe('isNoRetry', () => {
+  let original: string | undefined;
+  beforeEach(() => {
+    original = process.env.VARA_NO_RETRY;
+    delete process.env.VARA_NO_RETRY;
+  });
+  afterEach(() => {
+    if (original === undefined) delete process.env.VARA_NO_RETRY;
+    else process.env.VARA_NO_RETRY = original;
+  });
+
+  it('returns false when unset', () => {
+    expect(isNoRetry()).toBe(false);
+  });
+
+  it.each(['1', 'true', 'TRUE', 'True', 'yes', 'YES', 'on', 'ON', '  1  ', '1\n', '\ttrue\t'])(
+    'returns true for truthy value %j',
+    (value) => {
+      process.env.VARA_NO_RETRY = value;
+      expect(isNoRetry()).toBe(true);
+    },
+  );
+
+  it.each(['', '0', 'false', 'no', 'off', 'YEP', 'two', '2'])(
+    'returns false for non-truthy value %j',
+    (value) => {
+      process.env.VARA_NO_RETRY = value;
+      expect(isNoRetry()).toBe(false);
+    },
+  );
+});
+
 describe('isRetriableTransportError', () => {
   it.each(['timeout', 'ws_close_abnormal'])('returns true for transient reason %s', (reason) => {
     expect(isRetriableTransportError(transient(reason as 'timeout' | 'ws_close_abnormal'))).toBe(true);
@@ -177,11 +209,13 @@ describe('retryConnect', () => {
     originalNoRetry = process.env.VARA_NO_RETRY;
     delete process.env.VARA_NO_RETRY;
     setOutputOptions({ verbose: true });
-    // Pin jitter to base/2 for deterministic backoff in test logs.
+    // Pin jitter for deterministic backoff in test logs. With Math.random=0,
+    // jitteredBackoff returns base/2 — so retry tests still wait real wallclock
+    // (125ms for the 250ms attempt, 500ms for the 1000ms attempt). Total per
+    // 3-attempt exhaustion test ≈ 625ms. Acceptable for local but slow on
+    // constrained CI; if this becomes an issue, switch to jest.useFakeTimers().
     randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
-    // Speed up: 0ms delays so the test doesn't actually wait 250-1500ms.
-    // jitteredBackoff(0) returns 0, but the loop still calls sleep with the
-    // floored value. We swallow stderr verbose writes to keep test output clean.
+    // Swallow stderr verbose writes to keep test output clean.
     verboseStderrSpy = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
   });
 
@@ -253,6 +287,51 @@ describe('retryConnect', () => {
     const err = transient('timeout');
     const connectFn = jest.fn().mockRejectedValueOnce(err);
     await expect(retryConnect(ENDPOINT, {}, connectFn)).rejects.toBe(err);
+    expect(connectFn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['1', 'true', 'TRUE', 'yes', 'YES', 'on', 'ON', ' true ', '  1\n'])(
+    'VARA_NO_RETRY=%j disables retry (truthy spelling)',
+    async (value) => {
+      process.env.VARA_NO_RETRY = value;
+      const err = transient('timeout');
+      const connectFn = jest.fn().mockRejectedValueOnce(err);
+      await expect(retryConnect(ENDPOINT, {}, connectFn)).rejects.toBe(err);
+      expect(connectFn).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(['', '0', 'false', 'no', 'off', 'yep', 'sure', '2'])(
+    'VARA_NO_RETRY=%j keeps retry enabled (non-truthy spelling)',
+    async (value) => {
+      process.env.VARA_NO_RETRY = value;
+      const connectFn = jest.fn()
+        .mockRejectedValueOnce(transient('timeout'))
+        .mockResolvedValueOnce(fakeApi);
+      const result = await retryConnect(ENDPOINT, {}, connectFn);
+      expect(result).toBe(fakeApi);
+      expect(connectFn).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('bails between attempts when shuttingDownFn returns true', async () => {
+    const err = transient('timeout');
+    const connectFn = jest.fn().mockRejectedValue(err);
+    // Shutdown predicate always true → first attempt runs, then the pre-sleep
+    // shutdown gate trips and rethrows lastErr without sleeping or retrying.
+    await expect(
+      retryConnect(ENDPOINT, {}, connectFn, () => true),
+    ).rejects.toBe(err);
+    expect(connectFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the first attempt regardless of shutdown state', async () => {
+    // Shutdown predicate true from the start — attempt 1 must still run
+    // (otherwise getApi could never return on a flaky startup). Only retries
+    // are gated.
+    const connectFn = jest.fn().mockResolvedValueOnce(fakeApi);
+    const result = await retryConnect(ENDPOINT, {}, connectFn, () => true);
+    expect(result).toBe(fakeApi);
     expect(connectFn).toHaveBeenCalledTimes(1);
   });
 
