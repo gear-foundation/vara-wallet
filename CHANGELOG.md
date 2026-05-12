@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-05-12
+
+One theme since 0.16.0: **transport-error classification** (PR #59, closes #58). The companion to v0.16.0's `PROGRAM_ERROR` + `reason` work at the layer below — every transport-layer failure (DNS, WS handshake, RPC disconnect, TLS, timeout) now surfaces as a structured `TRANSPORT_ERROR` with a `reason` subcode, replacing the historical opaque `{"error":"{}","code":"UNKNOWN_ERROR"}` payload that hid network failures from agent retry logic. Unblocks #60 (auto-retry on transient transport errors) and #61 (`vara-wallet doctor` health-check subcommand). Field-validated against the 2026-05-12 evidence pass that triggered the original issue (flaky `wss://testnet.vara.network` during a real testnet deploy).
+
 ### Added
 
 - **`TRANSPORT_ERROR` code with `reason` subcodes** (issue #58). Transport-layer failures (DNS lookup, WS handshake, RPC disconnect, TLS, timeout) now surface as `code: "TRANSPORT_ERROR"` with a structured `reason` field instead of the historical opaque `{"error":"{}","code":"UNKNOWN_ERROR"}`. Reason taxonomy: `dns_failure`, `connection_refused`, `timeout`, `ws_close_abnormal`, `protocol_mismatch`, `unreachable`, `tls_failure`, `unknown`. Each error carries `meta.endpoint` and, for DNS, `meta.host`; `meta.cause` preserves the raw underlying message for triage. Agents can switch on `.reason` to distinguish transient (retry) from permanent (don't retry) failures.
