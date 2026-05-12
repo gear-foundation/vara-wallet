@@ -1,4 +1,4 @@
-import { CliError, formatError, classifyProgramError } from '../utils/errors';
+import { CliError, formatError, classifyProgramError, classifyTransportError } from '../utils/errors';
 
 describe('CliError', () => {
   it('stores message and code', () => {
@@ -15,15 +15,21 @@ describe('formatError', () => {
     expect(formatError(err)).toEqual({ error: 'bad input', code: 'INVALID_INPUT' });
   });
 
-  it('classifies connection errors', () => {
+  it('classifies plain connection errors as legacy CONNECTION_FAILED', () => {
+    // No transport reason matches "WebSocket connection failed" alone (no ENOTFOUND/
+    // ECONNREFUSED/close-code), so this falls through to the legacy classifier.
     const err = new Error('WebSocket connection failed');
     const result = formatError(err);
     expect(result.code).toBe('CONNECTION_FAILED');
   });
 
-  it('classifies timeout errors', () => {
+  it('classifies timeout errors as TRANSPORT_ERROR / timeout', () => {
+    // 'timeout' in the message is a transport signal — classifyTransportError
+    // now runs first in formatError and upgrades these to the new taxonomy.
     const err = new Error('Request timeout');
-    expect(formatError(err).code).toBe('TIMEOUT');
+    const result = formatError(err);
+    expect(result.code).toBe('TRANSPORT_ERROR');
+    expect(result.reason).toBe('timeout');
   });
 
   it('classifies not-found errors', () => {
@@ -140,9 +146,15 @@ describe('classifyProgramError', () => {
   });
 
   it('does NOT touch transport/timeout/connection classification', () => {
-    // These continue to flow through formatError + classifyError, not classifyProgramError.
-    expect(formatError(new Error('Request timeout')).code).toBe('TIMEOUT');
-    expect(formatError(new Error('WebSocket connect failed')).code).toBe('CONNECTION_FAILED');
+    // Timeout / connection_refused now route through the new TRANSPORT_ERROR
+    // taxonomy with reason subcodes (issue #58). ENOENT has no transport
+    // signal so still falls through to the legacy NOT_FOUND classifier.
+    const t = formatError(new Error('Request timeout'));
+    expect(t.code).toBe('TRANSPORT_ERROR');
+    expect(t.reason).toBe('timeout');
+    const wsPlain = formatError(new Error('WebSocket connect failed'));
+    // No ECONNREFUSED in the message — legacy fallback wins.
+    expect(wsPlain.code).toBe('CONNECTION_FAILED');
     expect(formatError(new Error('ENOENT: no such file')).code).toBe('NOT_FOUND');
   });
 
@@ -173,30 +185,191 @@ describe('classifyProgramError', () => {
     expect(result.meta).toBeUndefined();
   });
 
-  it('preserves transport TIMEOUT classification when program path bubbles a timeout', () => {
+  it('routes program-path timeouts to TRANSPORT_ERROR / timeout', () => {
     // Simulates queryBuilder.call() rejecting because the RPC roundtrip timed out.
-    // The fix must NOT mask this as PROGRAM_ERROR — agents distinguish "retry the
-    // network" from "do not retry, the program logic failed".
+    // After issue #58, transport classifier runs first in classifyProgramError
+    // so the contract is now TRANSPORT_ERROR { reason: 'timeout' }, NOT a bare
+    // 'TIMEOUT' code. Agent contract: retry the network, do not retry the program.
     const err = new Error('Request timeout after 60s');
     const result = classifyProgramError(err);
-    expect(result.code).toBe('TIMEOUT');
-    expect(result.meta).toBeUndefined();
+    expect(result.code).toBe('TRANSPORT_ERROR');
+    expect(result.meta?.reason).toBe('timeout');
   });
 
-  it('preserves transport CONNECTION_FAILED classification through the program path', () => {
+  it('routes program-path connection_refused to TRANSPORT_ERROR / connection_refused', () => {
     const err = new Error('WebSocket connect failed: ECONNREFUSED');
     const result = classifyProgramError(err);
-    expect(result.code).toBe('CONNECTION_FAILED');
+    expect(result.code).toBe('TRANSPORT_ERROR');
+    expect(result.meta?.reason).toBe('connection_refused');
   });
 
-  it('preserves NOT_FOUND transport classification (e.g. ENOENT) through the program path', () => {
-    // Important: program-level "not_found" requires the word "Program" so this
-    // ENOENT-style error must fall through to the transport classifier and come
-    // back as NOT_FOUND, not as PROGRAM_ERROR { reason: 'not_found' }.
+  it('preserves NOT_FOUND (non-transport) classification through the program path', () => {
+    // ENOENT has no transport reason, so program-path classification falls
+    // through to the legacy classifyError → NOT_FOUND. Critically NOT mapped
+    // to PROGRAM_ERROR { reason: 'not_found' } (which requires the word "Program").
     const err = new Error('ENOENT: no such file');
     const result = classifyProgramError(err);
     expect(result.code).toBe('NOT_FOUND');
     expect(result.meta).toBeUndefined();
+  });
+});
+
+describe('classifyTransportError', () => {
+  it('classifies ENOTFOUND with .code as dns_failure and extracts host from endpoint', () => {
+    const err = Object.assign(new Error('getaddrinfo ENOTFOUND nonexistent.example.invalid'), {
+      code: 'ENOTFOUND',
+    });
+    const cli = classifyTransportError(err, { endpoint: 'wss://nonexistent.example.invalid' });
+    expect(cli).not.toBeNull();
+    expect(cli!.code).toBe('TRANSPORT_ERROR');
+    expect(cli!.meta?.reason).toBe('dns_failure');
+    expect(cli!.meta?.host).toBe('nonexistent.example.invalid');
+    expect(cli!.meta?.endpoint).toBe('wss://nonexistent.example.invalid');
+    expect(cli!.message).toContain('nonexistent.example.invalid');
+  });
+
+  it('falls back to extracting host from the error message when endpoint is missing', () => {
+    const err = new Error('getaddrinfo ENOTFOUND bad-host.example');
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('dns_failure');
+    expect(cli!.meta?.host).toBe('bad-host.example');
+  });
+
+  it('classifies ECONNREFUSED as connection_refused', () => {
+    const err = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:9944'), {
+      code: 'ECONNREFUSED',
+    });
+    const cli = classifyTransportError(err, { endpoint: 'ws://127.0.0.1:9944' });
+    expect(cli!.meta?.reason).toBe('connection_refused');
+  });
+
+  it('classifies ETIMEDOUT as timeout', () => {
+    const err = Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('timeout');
+  });
+
+  it('migrates the legacy CONNECTION_TIMEOUT sentinel to TRANSPORT_ERROR / timeout', () => {
+    // withTimeout() in api.ts still throws a CliError(CONNECTION_TIMEOUT) as
+    // its internal sentinel; the unified classifier remaps it for output.
+    const legacy = new CliError('Connection timed out', 'CONNECTION_TIMEOUT');
+    const cli = classifyTransportError(legacy, { endpoint: 'wss://rpc.vara.network' });
+    expect(cli!.code).toBe('TRANSPORT_ERROR');
+    expect(cli!.meta?.reason).toBe('timeout');
+    expect(cli!.meta?.endpoint).toBe('wss://rpc.vara.network');
+  });
+
+  it('classifies WS close code 1006 in the message as ws_close_abnormal', () => {
+    const err = new Error('disconnected from wss://rpc with code 1006');
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('ws_close_abnormal');
+  });
+
+  it('classifies "Unexpected server response: 200" as protocol_mismatch', () => {
+    const err = new Error('Unexpected server response: 200');
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('protocol_mismatch');
+  });
+
+  it('classifies EHOSTUNREACH as unreachable', () => {
+    const err = Object.assign(new Error('connect EHOSTUNREACH'), { code: 'EHOSTUNREACH' });
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('unreachable');
+  });
+
+  it('classifies TLS handshake failures as tls_failure', () => {
+    const err = Object.assign(new Error('UNABLE_TO_VERIFY_LEAF_SIGNATURE'), {
+      code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    });
+    const cli = classifyTransportError(err);
+    expect(cli!.meta?.reason).toBe('tls_failure');
+  });
+
+  it('walks the extraction chain: err.error?.code wins when err.code is absent (ws library shape)', () => {
+    // The `ws` library wraps Node socket errors as { error: NetError, message, ... }.
+    // Extraction order (per plan): err.code → err.error?.code → message regex → ctx.cause.
+    const wsWrap = {
+      message: 'failed',
+      error: { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND ws-host' },
+    };
+    const cli = classifyTransportError(wsWrap, { endpoint: 'wss://ws-host' });
+    expect(cli!.meta?.reason).toBe('dns_failure');
+  });
+
+  it('uses ctx.cause from the listener when reject payload is empty', () => {
+    // Last layer of the chain: WsProvider rejected with {} but the on('error')
+    // listener captured ENOTFOUND first.
+    const cli = classifyTransportError(
+      {},
+      { endpoint: 'wss://bad', cause: { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND bad' } },
+    );
+    expect(cli!.meta?.reason).toBe('dns_failure');
+  });
+
+  it('returns null for non-transport Error instances (e.g. PROGRAM_ERROR-style panics)', () => {
+    expect(classifyTransportError(new Error('something else broke'))).toBeNull();
+    expect(classifyTransportError(new Error('ENOENT: no such file'))).toBeNull();
+  });
+
+  it('returns null for already-classified CliErrors that are not CONNECTION_TIMEOUT', () => {
+    expect(classifyTransportError(new CliError('boom', 'PROGRAM_ERROR'))).toBeNull();
+    expect(classifyTransportError(new CliError('boom', 'INVALID_ADDRESS'))).toBeNull();
+  });
+
+  it('classifies empty {} payload as TRANSPORT_ERROR / unknown when context exists', () => {
+    // The original issue #58 repro 1 shape: WsProvider rejects with {}.
+    // We have no listener-captured cause this time, but we DO know we tried
+    // to talk to an endpoint, so the value-shape gives us "unknown" instead
+    // of the historical UNKNOWN_ERROR opacity.
+    const cli = classifyTransportError({}, { endpoint: 'wss://bad' });
+    expect(cli).not.toBeNull();
+    expect(cli!.code).toBe('TRANSPORT_ERROR');
+    expect(cli!.meta?.reason).toBe('unknown');
+    expect(cli!.meta?.endpoint).toBe('wss://bad');
+  });
+});
+
+describe('formatError transport fallback (issue #58 regression)', () => {
+  it('upgrades the original empty-{} repro shape to TRANSPORT_ERROR / unknown when ctx is supplied', () => {
+    // EXACT shape from issue #58 repro 1: WsProvider rejected with {} when DNS
+    // failed. Pre-fix: { error: '{}', code: 'UNKNOWN_ERROR' }.
+    // Post-fix: api.ts's catch site supplies ctx.endpoint (and ctx.cause from
+    // the on('error') listener) so the empty payload routes through
+    // TRANSPORT_ERROR / unknown instead of the opaque UNKNOWN_ERROR.
+    const cli = classifyTransportError({}, { endpoint: 'wss://nonexistent.example' });
+    expect(cli).not.toBeNull();
+    const formatted = formatError(cli);
+    expect(formatted.code).toBe('TRANSPORT_ERROR');
+    expect(formatted.reason).toBe('unknown');
+    expect(formatted.endpoint).toBe('wss://nonexistent.example');
+  });
+
+  it('keeps a context-less empty-{} payload as UNKNOWN_ERROR (no false-positive transport claim)', () => {
+    // Without an endpoint or captured cause, we can't honestly call {} a
+    // transport failure — it might be a stray throw from any layer.
+    expect(formatError({}).code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('upgrades a raw ENOTFOUND Error to TRANSPORT_ERROR / dns_failure', () => {
+    const err = Object.assign(new Error('getaddrinfo ENOTFOUND host.example'), {
+      code: 'ENOTFOUND',
+    });
+    const formatted = formatError(err);
+    expect(formatted.code).toBe('TRANSPORT_ERROR');
+    expect(formatted.reason).toBe('dns_failure');
+    expect(formatted.host).toBe('host.example');
+  });
+
+  it('preserves the legacy CONNECTION_TIMEOUT CliError as TRANSPORT_ERROR / timeout', () => {
+    const legacy = new CliError(
+      'Connection to wss://rpc.vara.network timed out after 10s. Check your network or VARA_WS setting.',
+      'CONNECTION_TIMEOUT',
+    );
+    const formatted = formatError(legacy);
+    // Legacy code passes through to JSON output because formatError doesn't
+    // remap CliErrors it sees (only outputError pre-routes raw errors).
+    // The remap happens at the api.ts catch site via classifyTransportError.
+    expect(formatted.code).toBe('CONNECTION_TIMEOUT');
   });
 });
 
