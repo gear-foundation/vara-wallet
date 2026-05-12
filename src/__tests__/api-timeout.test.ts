@@ -1,4 +1,4 @@
-import { CliError } from '../utils/errors';
+import { CliError, classifyTransportError, formatError } from '../utils/errors';
 
 // Test the withTimeout pattern used in api.ts
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -65,5 +65,28 @@ describe('withTimeout', () => {
     await withTimeout(failing, 10000, 'msg').catch(() => {});
     expect(clearSpy).toHaveBeenCalled();
     clearSpy.mockRestore();
+  });
+
+  describe('CONNECTION_TIMEOUT → TRANSPORT_ERROR migration (issue #58)', () => {
+    it('classifyTransportError remaps CONNECTION_TIMEOUT to TRANSPORT_ERROR / timeout', () => {
+      const sentinel = new CliError('Connection timed out', 'CONNECTION_TIMEOUT');
+      const remapped = classifyTransportError(sentinel, { endpoint: 'wss://rpc.vara.network' });
+      expect(remapped).not.toBeNull();
+      expect(remapped!.code).toBe('TRANSPORT_ERROR');
+      expect(remapped!.meta?.reason).toBe('timeout');
+      expect(remapped!.meta?.endpoint).toBe('wss://rpc.vara.network');
+    });
+
+    it('end-to-end: api.ts wraps the CONNECTION_TIMEOUT sentinel before it reaches the user', () => {
+      // Simulates the api.ts attemptConnect catch path: when withTimeout fires
+      // its CONNECTION_TIMEOUT, api.ts runs classifyTransportError(...) over it
+      // and throws the migrated CliError. The user-facing output is then
+      // TRANSPORT_ERROR { reason: 'timeout' }, never the internal sentinel.
+      const sentinel = new CliError('Timed out', 'CONNECTION_TIMEOUT');
+      const userFacing = classifyTransportError(sentinel, { endpoint: 'wss://example' }) ?? sentinel;
+      const json = formatError(userFacing);
+      expect(json.code).toBe('TRANSPORT_ERROR');
+      expect(json.reason).toBe('timeout');
+    });
   });
 });

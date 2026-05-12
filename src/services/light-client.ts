@@ -1,26 +1,54 @@
 import { EventEmitter } from 'events';
 import type { ProviderInterface, ProviderInterfaceCallback, ProviderInterfaceEmitCb, ProviderInterfaceEmitted } from '@polkadot/rpc-provider/types';
+import { classifyTransportError, CliError } from '../utils';
 
-// Vara mainnet chain spec URL — fetched once and cached
-const VARA_CHAIN_SPEC_RPC = 'https://rpc.vara.network';
+// Vara mainnet chain spec URL — fetched once and cached.
+// Override via VARA_CHAIN_SPEC_RPC for testing transport classification.
+const VARA_CHAIN_SPEC_RPC =
+  process.env.VARA_CHAIN_SPEC_RPC || 'https://rpc.vara.network';
 
 let cachedChainSpec: string | null = null;
 
 async function fetchChainSpec(): Promise<string> {
   if (cachedChainSpec) return cachedChainSpec;
 
-  const response = await fetch(VARA_CHAIN_SPEC_RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'sync_state_genSyncSpec',
-      params: [true],
-      id: 1,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(VARA_CHAIN_SPEC_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'sync_state_genSyncSpec',
+        params: [true],
+        id: 1,
+      }),
+    });
+  } catch (err) {
+    // Network-layer fetch failures (DNS, ECONNREFUSED, TLS) — route through
+    // the unified transport classifier so --light failures don't show up as
+    // opaque UNKNOWN_ERROR (issue #58 scope expansion).
+    const cli = classifyTransportError(err, { endpoint: VARA_CHAIN_SPEC_RPC });
+    throw cli ?? err;
+  }
 
-  const data = await response.json();
+  let data: any;
+  try {
+    data = await response.json();
+  } catch (err) {
+    // 200 OK but response body isn't JSON — the endpoint is reachable but
+    // doesn't speak the chain-spec RPC. Classify as protocol_mismatch so
+    // agents can distinguish "DNS failed" from "wrong endpoint".
+    throw new CliError(
+      `Endpoint ${VARA_CHAIN_SPEC_RPC} returned non-JSON response`,
+      'TRANSPORT_ERROR',
+      {
+        reason: 'protocol_mismatch',
+        endpoint: VARA_CHAIN_SPEC_RPC,
+        cause: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
   cachedChainSpec = JSON.stringify(data.result);
   return cachedChainSpec;
 }
@@ -84,18 +112,34 @@ export class SmoldotProvider implements ProviderInterface {
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    const { start } = await import('smoldot');
+    let chainSpec: string;
+    try {
+      // fetchChainSpec already routes its own failures through classifyTransportError.
+      chainSpec = await fetchChainSpec();
+    } catch (err) {
+      // Pass through pre-classified CliErrors; classify anything raw.
+      if (err instanceof CliError) throw err;
+      const cli = classifyTransportError(err, { endpoint: VARA_CHAIN_SPEC_RPC });
+      throw cli ?? err;
+    }
 
-    const chainSpec = await fetchChainSpec();
+    try {
+      const { start } = await import('smoldot');
 
-    this.client = start({
-      maxLogLevel: 3,
-      logCallback: (_level: number, _target: string, _message: string) => {
-        // Suppress smoldot logs — they're noisy
-      },
-    });
+      this.client = start({
+        maxLogLevel: 3,
+        logCallback: (_level: number, _target: string, _message: string) => {
+          // Suppress smoldot logs — they're noisy
+        },
+      });
 
-    this.chain = await this.client.addChain({ chainSpec });
+      this.chain = await this.client.addChain({ chainSpec });
+    } catch (err) {
+      if (err instanceof CliError) throw err;
+      const cli = classifyTransportError(err, { endpoint: 'light://smoldot' });
+      throw cli ?? err;
+    }
+
     this.connected = true;
     this.startPump();
     this.emitter.emit('connected');

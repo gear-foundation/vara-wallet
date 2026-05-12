@@ -38,6 +38,10 @@ export function verbose(message: string): void {
   process.stderr.write(chalk.gray(`[verbose] ${message}\n`));
 }
 
+export function isVerboseEnabled(): boolean {
+  return Boolean(globalOptions.verbose) && !globalOptions.quiet;
+}
+
 function bigintReplacer(_key: string, value: unknown): unknown {
   if (typeof value === 'bigint') {
     return value.toString();

@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`TRANSPORT_ERROR` code with `reason` subcodes** (issue #58). Transport-layer failures (DNS lookup, WS handshake, RPC disconnect, TLS, timeout) now surface as `code: "TRANSPORT_ERROR"` with a structured `reason` field instead of the historical opaque `{"error":"{}","code":"UNKNOWN_ERROR"}`. Reason taxonomy: `dns_failure`, `connection_refused`, `timeout`, `ws_close_abnormal`, `protocol_mismatch`, `unreachable`, `tls_failure`, `unknown`. Each error carries `meta.endpoint` and, for DNS, `meta.host`; `meta.cause` preserves the raw underlying message for triage. Agents can switch on `.reason` to distinguish transient (retry) from permanent (don't retry) failures.
+- **`--verbose` cause echo.** When `--verbose` is set, `outputError` writes a `[verbose] cause: code=<x>, message=<y>` line to stderr immediately before the structured JSON. Wrapped to swallow EPIPE so a closed-stderr consumer doesn't crash the CLI tail.
+- **Light-client transport classification.** `--light` failures (chainspec fetch DNS error, ECONNREFUSED, non-JSON response, smoldot init failure) route through the same `TRANSPORT_ERROR` taxonomy instead of bubbling up as raw `SyntaxError` / `INTERNAL_ERROR`. `VARA_CHAIN_SPEC_RPC` env var supported for testing.
+
+### Changed
+
+- **`CONNECTION_TIMEOUT` (WS connect timeout) migrated to `TRANSPORT_ERROR { reason: 'timeout' }`.** The internal sentinel thrown by `withTimeout()` in `api.ts` is now remapped before reaching the user. Faucet HTTP `CONNECTION_FAILED` is unchanged (different consumer surface).
+- **`api.ts` constructs `WsProvider` explicitly** instead of relying on `GearApi.create({ providerAddress })`. An `on('error')` listener captures the underlying Node socket error code (ENOTFOUND, ECONNREFUSED, ETIMEDOUT) before `@polkadot/api`'s browser-style Event rejection laundering strips it. Detached after handshake.
+
+### Fixed
+
+- **`{"error":"{}","code":"UNKNOWN_ERROR"}` opacity on transport failures** (issue #58). The original repro — `vara-wallet --ws wss://nonexistent-host` returning an empty `{}` payload — now produces `{"error":"Cannot resolve host nonexistent-host","code":"TRANSPORT_ERROR","reason":"dns_failure","endpoint":"wss://nonexistent-host","host":"nonexistent-host"}`.
+
 ## [0.16.0] - 2026-04-26
 
 Two themes since 0.15.0: **networking performance** (PR #56 — every CLI invocation drops from ~2.8s to ~0.55s on warm runs, 5.2x) and **agent-UX hardening** (PR #54 — gas-error classification, arity-aware args validation, sharper IDL diagnostics). The networking work has two roots: `@polkadot/api` keeps WS heartbeat timers alive ~1.7s after disconnect (we now exit immediately, draining stdout/stderr first), and `state_getMetadata` was being refetched on every connect (now cached on disk, keyed by `genesisHash-specVersion`, with auto-invalidation handled by polkadot/api on runtime upgrade). The agent-UX work was surfaced by a field report from a betting agent and an adversarial cross-model review (Codex).

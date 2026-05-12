@@ -1,5 +1,7 @@
 import { GearApi } from '@gear-js/api';
-import { verbose, CliError, errorMessage, markStage } from '../utils';
+import { WsProvider } from '@polkadot/api';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { verbose, CliError, errorMessage, markStage, classifyTransportError } from '../utils';
 import { readConfig } from './config';
 import { SmoldotProvider } from './light-client';
 import { buildCacheKey, clearMetadataCache, loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
@@ -35,6 +37,43 @@ function isMetadataError(err: unknown): boolean {
     msg.includes('unable to decode metadata') ||
     msg.includes('metadata version')
   );
+}
+
+/**
+ * Post-mortem cause probe. Node's built-in WebSocket (used by recent
+ * @polkadot/api) sanitizes the underlying error to "Received network error
+ * or non-101 status code", so neither the rejection nor the on('error')
+ * listener exposes the real socket error code. After a WS connect fails,
+ * we do a quick DNS lookup on the endpoint host — if that resolves, the
+ * root cause was almost certainly handshake / protocol; if it doesn't, the
+ * root cause was DNS. Only runs on the failure path; the success path is
+ * untouched. Best-effort: a probe that itself errors out is ignored.
+ */
+async function probeTransportCause(
+  endpoint: string,
+  existing: { code?: string; message?: string } | undefined,
+): Promise<{ code?: string; message?: string } | undefined> {
+  // If we already have a real socket error code from the listener, don't probe.
+  if (existing?.code && existing.code !== 'unknown') return existing;
+  let host: string | undefined;
+  try {
+    host = new URL(endpoint).hostname;
+  } catch {
+    return existing;
+  }
+  if (!host) return existing;
+  try {
+    await dnsLookup(host);
+    // Host resolves — connect failed for some other reason (TLS, protocol,
+    // refused). Leave the existing/raw cause in place.
+    return existing;
+  } catch (e) {
+    const code = (e as { code?: string })?.code;
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+      return { code, message: `getaddrinfo ${code} ${host}` };
+    }
+    return existing;
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -84,29 +123,84 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       const cachedKeyCount = Object.keys(cachedMetadata).length;
       markStage('connect_begin', { endpoint, cachedMetadataKeys: cachedKeyCount });
       const connectPromise = (async (): Promise<GearApi> => {
-        const attemptConnect = (metadata: Record<string, `0x${string}`>): Promise<GearApi> =>
-          withTimeout(
-            GearApi.create({ providerAddress: endpoint, metadata }),
-            CONNECTION_TIMEOUT_MS,
-            `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
-          );
+        // Construct WsProvider explicitly (instead of GearApi.create({ providerAddress }))
+        // so we can attach an error listener and capture the underlying Node socket
+        // error code (ENOTFOUND / ECONNREFUSED / ETIMEDOUT) before WsProvider's
+        // browser-style Event rejection laundering strips it. This is what closes
+        // the `{"error":"{}","code":"UNKNOWN_ERROR"}` opacity from issue #58.
+        const provider = new WsProvider(endpoint, /* autoConnect */ false);
+        let lastSocketError: { code?: string; message?: string } | undefined;
+        const unsubError = provider.on('error', (e: unknown) => {
+          const anyE = e as { code?: string; message?: string; error?: { code?: string; message?: string } };
+          lastSocketError = {
+            code: anyE?.error?.code ?? anyE?.code,
+            message: anyE?.message ?? anyE?.error?.message ?? String(e),
+          };
+        });
+
+        const attemptConnect = async (metadata: Record<string, `0x${string}`>): Promise<GearApi> => {
+          try {
+            // GearApi.create both opens the provider (if not connected) AND
+            // fetches genesis/metadata. WsProvider.connect() can resolve
+            // before the WS handshake actually completes, so transport
+            // failures surface inside GearApi.create rather than in our
+            // explicit provider.connect() — both have to be inside the catch.
+            await withTimeout(
+              provider.connect(),
+              CONNECTION_TIMEOUT_MS,
+              `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
+            );
+            return await withTimeout(
+              GearApi.create({ provider, metadata }),
+              CONNECTION_TIMEOUT_MS,
+              `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
+            );
+          } catch (rawErr) {
+            // Metadata-cache mismatch errors must propagate raw — the caller
+            // detects them via isMetadataError() and retries with an empty
+            // cache. Don't translate them to TRANSPORT_ERROR here.
+            if (isMetadataError(rawErr)) throw rawErr;
+            // Post-mortem DNS probe: Node's built-in WebSocket sanitizes the
+            // underlying error to "Received network error or non-101 status
+            // code" so we can't read .code directly. On failure path only,
+            // do a quick dns.lookup on the endpoint host — if it fails, the
+            // root cause was DNS. Only runs once per failed connect, never
+            // on the success path.
+            const probed = await probeTransportCause(endpoint, lastSocketError);
+            const cli = classifyTransportError(rawErr, {
+              endpoint,
+              cause: probed ?? lastSocketError,
+            });
+            throw cli ?? rawErr;
+          }
+        };
+
         let api: GearApi;
         try {
-          api = await attemptConnect(cachedMetadata);
-        } catch (err) {
-          // Cached metadata that passed magic-byte validation but trips
-          // @polkadot/api's deeper Metadata wrap (e.g. version/struct
-          // mismatch in a future polkadot/api). Clear and retry once
-          // without cache so the user isn't stuck with a poisoned entry.
-          if (cachedKeyCount > 0 && isMetadataError(err)) {
-            verbose(
-              `metadata-cache: connect failed with cached metadata (${errorMessage(err)}); clearing cache and retrying`,
-            );
-            clearMetadataCache();
-            api = await attemptConnect({});
-          } else {
-            throw err;
+          try {
+            api = await attemptConnect(cachedMetadata);
+          } catch (err) {
+            // Cached metadata that passed magic-byte validation but trips
+            // @polkadot/api's deeper Metadata wrap (e.g. version/struct
+            // mismatch in a future polkadot/api). Clear and retry once
+            // without cache so the user isn't stuck with a poisoned entry.
+            if (cachedKeyCount > 0 && isMetadataError(err)) {
+              verbose(
+                `metadata-cache: connect failed with cached metadata (${errorMessage(err)}); clearing cache and retrying`,
+              );
+              clearMetadataCache();
+              // Disconnect the existing provider so retry uses a clean state.
+              try { await provider.disconnect(); } catch { /* ignore */ }
+              api = await attemptConnect({});
+            } else {
+              throw err;
+            }
           }
+        } finally {
+          // Detach the connect-time error listener now that the handshake
+          // outcome is known. Runtime errors mid-call surface through
+          // formatError's transport fallback instead.
+          try { unsubError(); } catch { /* ignore */ }
         }
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);
