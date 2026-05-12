@@ -135,6 +135,12 @@ export class SmoldotProvider implements ProviderInterface {
 
       this.chain = await this.client.addChain({ chainSpec });
     } catch (err) {
+      // Terminate the smoldot client if it was started — addChain failure
+      // leaves a running worker that holds the process open otherwise.
+      if (this.client) {
+        try { await this.client.terminate(); } catch { /* ignore */ }
+        this.client = null;
+      }
       if (err instanceof CliError) throw err;
       const cli = classifyTransportError(err, { endpoint: 'light://smoldot' });
       throw cli ?? err;

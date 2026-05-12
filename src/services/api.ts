@@ -197,6 +197,14 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
               throw err;
             }
           }
+        } catch (err) {
+          // Terminal connect failure: release the WS handle and background
+          // heartbeat timers WsProvider keeps alive even after a rejected
+          // connect. Without this the process can hang on exit until the
+          // ~1.7s heartbeat clears (fastExit helps but doesn't substitute
+          // for proper teardown).
+          try { await provider.disconnect(); } catch { /* ignore */ }
+          throw err;
         } finally {
           // Detach the connect-time error listener now that the handshake
           // outcome is known. Runtime errors mid-call surface through

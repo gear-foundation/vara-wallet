@@ -41,7 +41,11 @@ export function outputError(error: unknown): void {
   if (isVerboseEnabled()) {
     try {
       const cause = extractCauseChain(error);
-      if (cause) process.stderr.write(`[verbose] cause: ${cause}\n`);
+      if (cause) {
+        // Sanitize before writing — `cause` interpolates raw error text and
+        // a pathological CliError message could carry a seed/mnemonic.
+        process.stderr.write(`[verbose] cause: ${sanitizeErrorMessage(cause)}\n`);
+      }
     } catch {
       // best-effort
     }
