@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **`CONNECTION_TIMEOUT` (WS connect timeout) migrated to `TRANSPORT_ERROR { reason: 'timeout' }`.** The internal sentinel thrown by `withTimeout()` in `api.ts` is now remapped before reaching the user. Faucet HTTP `CONNECTION_FAILED` is unchanged (different consumer surface).
+- **Program-path `TIMEOUT` / `CONNECTION_FAILED` migrated to `TRANSPORT_ERROR` with `reason` subcode.** `classifyProgramError` (used by `call`, `program upload/create`, `dex`, `vft`, `message`) now routes RPC-roundtrip timeouts to `TRANSPORT_ERROR { reason: 'timeout' }` and `ECONNREFUSED`-style failures to `TRANSPORT_ERROR { reason: 'connection_refused' }` instead of the legacy bare `TIMEOUT` / `CONNECTION_FAILED` codes. Agent scripts that grep for `"code":"TIMEOUT"` from these surfaces must switch to `"code":"TRANSPORT_ERROR"` + `"reason":"timeout"`. Non-transport classifications (`NOT_FOUND` from `ENOENT`, etc.) are unchanged.
 - **`api.ts` constructs `WsProvider` explicitly** instead of relying on `GearApi.create({ providerAddress })`. An `on('error')` listener captures the underlying Node socket error code (ENOTFOUND, ECONNREFUSED, ETIMEDOUT) before `@polkadot/api`'s browser-style Event rejection laundering strips it. Detached after handshake.
 
 ### Fixed
