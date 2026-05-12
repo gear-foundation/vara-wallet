@@ -87,6 +87,140 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   ]);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Transient TRANSPORT_ERROR reasons worth retrying. Permanent reasons
+// (dns_failure, tls_failure, protocol_mismatch, connection_refused,
+// unreachable, unknown) fail fast — retrying them just wastes wallclock.
+const TRANSIENT_TRANSPORT_REASONS = new Set(['timeout', 'ws_close_abnormal']);
+
+function isRetriableTransportError(err: unknown): boolean {
+  if (!(err instanceof CliError) || err.code !== 'TRANSPORT_ERROR') return false;
+  const reason = (err.meta as { reason?: string } | undefined)?.reason;
+  return typeof reason === 'string' && TRANSIENT_TRANSPORT_REASONS.has(reason);
+}
+
+// Baseline backoff per retry attempt (index = attempt number; 0 = no delay
+// before first attempt). ±50% jitter applied to each non-zero delay to
+// prevent thundering-herd when N agents fail in lockstep against the same
+// flaky endpoint.
+const RETRY_BACKOFF_MS = [0, 250, 1000] as const;
+
+function jitteredBackoff(baseMs: number): number {
+  if (baseMs <= 0) return 0;
+  return Math.max(0, Math.floor(baseMs + (Math.random() - 0.5) * baseMs));
+}
+
+/**
+ * Single connect attempt. Owns the WsProvider lifecycle: builds a fresh
+ * provider, attaches the socket-error listener, attempts the handshake,
+ * classifies transport failures via the post-mortem DNS probe, and
+ * disconnects the provider on any failure path. Metadata-mismatch errors
+ * propagate raw so the caller can clear the cache and retry.
+ */
+async function connectOnce(
+  endpoint: string,
+  metadata: Record<string, `0x${string}`>,
+): Promise<GearApi> {
+  const provider = new WsProvider(endpoint, /* autoConnect */ false);
+  let lastSocketError: { code?: string; message?: string } | undefined;
+  const unsubError = provider.on('error', (e: unknown) => {
+    const anyE = e as { code?: string; message?: string; error?: { code?: string; message?: string } };
+    lastSocketError = {
+      code: anyE?.error?.code ?? anyE?.code,
+      message: anyE?.message ?? anyE?.error?.message ?? String(e),
+    };
+  });
+  try {
+    try {
+      // WsProvider.connect() can resolve before the WS handshake actually
+      // completes; transport failures sometimes surface inside GearApi.create
+      // rather than in our explicit provider.connect(). Both have to be
+      // inside the catch.
+      await withTimeout(
+        provider.connect(),
+        CONNECTION_TIMEOUT_MS,
+        `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
+      );
+      return await withTimeout(
+        GearApi.create({ provider, metadata }),
+        CONNECTION_TIMEOUT_MS,
+        `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
+      );
+    } catch (rawErr) {
+      // Release the WS handle and background heartbeat timers WsProvider
+      // keeps alive even after a rejected connect. Without this the process
+      // can hang on exit until the ~1.7s heartbeat clears.
+      try { await provider.disconnect(); } catch { /* ignore */ }
+
+      // Metadata-cache mismatch errors propagate raw so the outer caller
+      // can detect via isMetadataError() and retry with empty cache.
+      if (isMetadataError(rawErr)) throw rawErr;
+
+      // Post-mortem DNS probe: Node's built-in WebSocket sanitizes the
+      // underlying error to "Received network error or non-101 status
+      // code", so we can't read .code directly. A quick dns.lookup
+      // disambiguates DNS failure from protocol mismatch.
+      const probed = await probeTransportCause(endpoint, lastSocketError);
+      const cli = classifyTransportError(rawErr, {
+        endpoint,
+        cause: probed ?? lastSocketError,
+      });
+      throw cli ?? rawErr;
+    }
+  } finally {
+    // Detach the connect-time error listener now that the outcome is known.
+    try { unsubError(); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Wrap connectOnce with transparent retry for transient TRANSPORT_ERROR
+ * subcodes (timeout, ws_close_abnormal). Permanent reasons fail fast.
+ * Up to 3 attempts total; ±50% jitter on backoff. Opt-out via
+ * VARA_NO_RETRY=1 for scripts that need strict single-attempt semantics.
+ */
+async function retryConnect(
+  endpoint: string,
+  metadata: Record<string, `0x${string}`>,
+  connectFn: (endpoint: string, metadata: Record<string, `0x${string}`>) => Promise<GearApi> = connectOnce,
+): Promise<GearApi> {
+  const maxAttempts = process.env.VARA_NO_RETRY === '1' ? 1 : RETRY_BACKOFF_MS.length;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      const baseMs = RETRY_BACKOFF_MS[attempt];
+      const delay = jitteredBackoff(baseMs);
+      const reason = (lastErr instanceof CliError
+        ? (lastErr.meta as { reason?: string } | undefined)?.reason
+        : undefined) ?? 'transient';
+      verbose(`retry ${attempt}/${maxAttempts - 1} after transport ${reason} (${delay}ms backoff)`);
+      if (delay > 0) await sleep(delay);
+    }
+    try {
+      return await connectFn(endpoint, metadata);
+    } catch (err) {
+      lastErr = err;
+      // Stop retrying immediately on anything non-retriable: non-CliError
+      // throws, non-TRANSPORT_ERROR CliErrors (e.g. metadata mismatch), and
+      // permanent TRANSPORT_ERROR reasons.
+      if (!isRetriableTransportError(err)) throw err;
+    }
+  }
+  throw lastErr;
+}
+
+// Internal helpers exported for tests. Not part of the public API.
+export const __testing = {
+  retryConnect,
+  isRetriableTransportError,
+  jitteredBackoff,
+  TRANSIENT_TRANSPORT_REASONS,
+  RETRY_BACKOFF_MS,
+};
+
 export async function getApi(wsEndpoint?: string): Promise<GearApi> {
   const config = readConfig();
   const endpoint = wsEndpoint || process.env.VARA_WS || config.wsEndpoint || DEFAULT_ENDPOINT;
@@ -123,93 +257,24 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       const cachedKeyCount = Object.keys(cachedMetadata).length;
       markStage('connect_begin', { endpoint, cachedMetadataKeys: cachedKeyCount });
       const connectPromise = (async (): Promise<GearApi> => {
-        // Construct WsProvider explicitly (instead of GearApi.create({ providerAddress }))
-        // so we can attach an error listener and capture the underlying Node
-        // socket error code (ENOTFOUND / ECONNREFUSED / ETIMEDOUT) before
-        // WsProvider's browser-style Event rejection laundering strips it.
-        const provider = new WsProvider(endpoint, /* autoConnect */ false);
-        let lastSocketError: { code?: string; message?: string } | undefined;
-        const unsubError = provider.on('error', (e: unknown) => {
-          const anyE = e as { code?: string; message?: string; error?: { code?: string; message?: string } };
-          lastSocketError = {
-            code: anyE?.error?.code ?? anyE?.code,
-            message: anyE?.message ?? anyE?.error?.message ?? String(e),
-          };
-        });
-
-        const attemptConnect = async (metadata: Record<string, `0x${string}`>): Promise<GearApi> => {
-          // Clear any cause captured by a prior attempt — the metadata-cache
-          // retry calls attemptConnect twice and stale state would otherwise
-          // leak into the second attempt's classification.
-          lastSocketError = undefined;
-          try {
-            // WsProvider.connect() can resolve before the WS handshake
-            // actually completes; transport failures surface inside
-            // GearApi.create rather than in our explicit provider.connect().
-            // Both have to be inside the catch.
-            await withTimeout(
-              provider.connect(),
-              CONNECTION_TIMEOUT_MS,
-              `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
-            );
-            return await withTimeout(
-              GearApi.create({ provider, metadata }),
-              CONNECTION_TIMEOUT_MS,
-              `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
-            );
-          } catch (rawErr) {
-            // Metadata-cache mismatch errors must propagate raw so the caller
-            // can detect them via isMetadataError() and retry with an empty
-            // cache.
-            if (isMetadataError(rawErr)) throw rawErr;
-            // Post-mortem DNS probe: Node's built-in WebSocket sanitizes
-            // the underlying error to "Received network error or non-101
-            // status code", so we can't read .code directly. A quick
-            // dns.lookup on the endpoint host disambiguates DNS failure
-            // from protocol mismatch. Failure path only.
-            const probed = await probeTransportCause(endpoint, lastSocketError);
-            const cli = classifyTransportError(rawErr, {
-              endpoint,
-              cause: probed ?? lastSocketError,
-            });
-            throw cli ?? rawErr;
-          }
-        };
-
         let api: GearApi;
         try {
-          try {
-            api = await attemptConnect(cachedMetadata);
-          } catch (err) {
-            // Cached metadata that passed magic-byte validation but trips
-            // @polkadot/api's deeper Metadata wrap (e.g. version/struct
-            // mismatch in a future polkadot/api). Clear and retry once
-            // without cache so the user isn't stuck with a poisoned entry.
-            if (cachedKeyCount > 0 && isMetadataError(err)) {
-              verbose(
-                `metadata-cache: connect failed with cached metadata (${errorMessage(err)}); clearing cache and retrying`,
-              );
-              clearMetadataCache();
-              // Disconnect the existing provider so retry uses a clean state.
-              try { await provider.disconnect(); } catch { /* ignore */ }
-              api = await attemptConnect({});
-            } else {
-              throw err;
-            }
-          }
+          api = await retryConnect(endpoint, cachedMetadata);
         } catch (err) {
-          // Terminal connect failure: release the WS handle and background
-          // heartbeat timers WsProvider keeps alive even after a rejected
-          // connect. Without this the process can hang on exit until the
-          // ~1.7s heartbeat clears (fastExit helps but doesn't substitute
-          // for proper teardown).
-          try { await provider.disconnect(); } catch { /* ignore */ }
-          throw err;
-        } finally {
-          // Detach the connect-time error listener now that the handshake
-          // outcome is known. Runtime errors mid-call surface through
-          // formatError's transport fallback instead.
-          try { unsubError(); } catch { /* ignore */ }
+          // Cached metadata that passed magic-byte validation but trips
+          // @polkadot/api's deeper Metadata wrap (e.g. version/struct
+          // mismatch). Clear and retry once without cache so the user
+          // isn't stuck with a poisoned entry. The empty-metadata retry
+          // also gets the transient-transport retry treatment.
+          if (cachedKeyCount > 0 && isMetadataError(err)) {
+            verbose(
+              `metadata-cache: connect failed with cached metadata (${errorMessage(err)}); clearing cache and retrying`,
+            );
+            clearMetadataCache();
+            api = await retryConnect(endpoint, {});
+          } else {
+            throw err;
+          }
         }
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);

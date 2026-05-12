@@ -398,6 +398,34 @@ over regex matching on `.error`.
 | `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read top-level `.programMessage` for the contract-level cause (Result::unwrap wrapper stripped). State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
 | `TRANSPORT_ERROR` | Network failure (DNS / WS handshake / RPC disconnect / TLS / timeout) | Switch on top-level `.reason`: `timeout` / `ws_close_abnormal` are transient (retry the same endpoint, matching the wallet's auto-retry); the rest (`dns_failure` / `tls_failure` / `protocol_mismatch` / `connection_refused` / `unreachable`) are permanent for the current endpoint (swap `--ws` / `--network`). `.endpoint` and `.host` (DNS) identify the target. |
 
+### Transparent connect-time retry (since 0.18.0)
+
+`getApi()` retries the connect path up to 3 attempts when the underlying failure is `TRANSPORT_ERROR` with a transient `reason`:
+
+| Reason | Retry? | Why |
+|--------|--------|-----|
+| `timeout` | yes | endpoint may be momentarily overloaded |
+| `ws_close_abnormal` | yes | TCP-level disconnect mid-handshake; reconnect usually clears it |
+| `dns_failure` | no | DNS won't fix itself on retry |
+| `tls_failure` | no | cert/protocol issue, deterministic |
+| `protocol_mismatch` | no | endpoint isn't a Vara node |
+| `connection_refused` | no | nothing listening |
+| `unreachable` | no | route problem, deterministic |
+| `unknown` | no | conservative — fall back to operator |
+
+Backoff schedule is `[0, 250, 1000]ms` with ±50% jitter per attempt (prevents thundering-herd when several agents fail in lockstep). Each retry boundary surfaces under `--verbose`:
+
+```
+[verbose] retry 1/2 after transport timeout (125ms backoff)
+[verbose] retry 2/2 after transport timeout (500ms backoff)
+```
+
+**Opt-out:** set `VARA_NO_RETRY=1` for strict single-attempt semantics.
+
+In CI, set `VARA_NO_RETRY=1` if strict per-command timing matters — a flaky endpoint can otherwise inflate suite wallclock by ~3× because every command retries up to 3 times. Agent skill packs should NOT set this by default; the retry default is what makes most session-flake invisible to operators.
+
+This obsoletes the agent-side retry-loop workaround documented in `gear-foundation/vara-agent-network` PR #37 — call `vara-wallet` once and let it handle transient flake. Permanent failures still surface immediately, so the structured `reason` switch from the table above remains the right tool for routing (retry vs swap endpoint vs escalate).
+
 ## Addresses
 
 Vara uses SS58 addresses (like `kGioe8b7...`). Program IDs and message IDs are hex (`0x1234...`).
