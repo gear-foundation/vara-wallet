@@ -1,4 +1,15 @@
-import { buildFunctionDryRun, buildQueryDryRun, _resolveDryRunPayloadForTests } from '../commands/call';
+import * as path from 'path';
+import type { SailsProgram } from 'sails-js';
+import {
+  buildFunctionDryRun,
+  buildQueryDryRun,
+  _decodeFunctionReplyForTests,
+  _listServiceMethodsForTests,
+  _resolveDryRunPayloadForTests,
+} from '../commands/call';
+import { parseIdlFileV2 } from '../services/sails';
+
+const V2_GENERICS_FIXTURE = path.join(__dirname, 'fixtures', 'sample-v2-generics.idl');
 
 describe('buildFunctionDryRun', () => {
   it('returns the documented dry-run shape with required fields', () => {
@@ -173,6 +184,47 @@ describe('B2 regression: _resolveDryRunPayloadForTests', () => {
     const result = _resolveDryRunPayloadForTests(func, txBuilder, []);
     expect(result.destination).toBe(txBuilder.programId);
     expect(result.encodedPayload).not.toBe(result.destination);
+  });
+});
+
+describe('call command helpers', () => {
+  it('lists available methods directly from the loaded service', () => {
+    const service = {
+      functions: { Transfer: {}, Approve: {} },
+      queries: { BalanceOf: {} },
+    };
+
+    expect(_listServiceMethodsForTests('Vft', service)).toEqual([
+      'Vft/Transfer (function)',
+      'Vft/Approve (function)',
+      'Vft/BalanceOf (query)',
+    ]);
+  });
+
+  it('decodes beta.2 raw function replies through SailsProgram.decodeReply', async () => {
+    const program = await parseIdlFileV2(V2_GENERICS_FIXTURE) as SailsProgram;
+    const query = program.services.Gen.queries.ReadAmount;
+    const header = query.encodePayload();
+    const body = program.services.Gen.registry.createType(
+      query.returnType,
+      { id: 7, payload: 42n },
+    ).toHex();
+    const rawReply = `${header}${body.slice(2)}`;
+    const response = jest.fn(async (rawResult?: boolean) => {
+      if (rawResult) return rawReply;
+      throw new Error('builder decode fallback should not run');
+    });
+
+    const decoded = await _decodeFunctionReplyForTests(
+      { response },
+      program,
+      { returnTypeDef: 'u32' },
+      'FallbackService',
+    );
+
+    expect(decoded).toEqual({ id: 7, payload: '42' });
+    expect(response).toHaveBeenCalledWith(true);
+    expect(response).toHaveBeenCalledTimes(1);
   });
 });
 

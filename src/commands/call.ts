@@ -82,10 +82,7 @@ export function registerCallCommand(program: Command): void {
       const isFunction = methodName in service.functions;
 
       if (!isQuery && !isFunction) {
-        const allMethods = [
-          ...Object.keys(service.functions || {}).map((m) => `${serviceName}/${m} (function)`),
-          ...Object.keys(service.queries || {}).map((m) => `${serviceName}/${m} (query)`),
-        ];
+        const allMethods = listServiceMethods(serviceName, service);
         const hint = suggestMethod(sails, serviceName, methodName);
         const prefix = hint ? `Did you mean: ${hint}? ` : '';
         throw new CliError(
@@ -142,6 +139,18 @@ export function _resolveDryRunPayloadForTests(
     destination: txBuilder.programId,
   };
 }
+
+function listServiceMethods(
+  serviceName: string,
+  service: { functions?: Record<string, unknown>; queries?: Record<string, unknown> },
+): string[] {
+  return [
+    ...Object.keys(service.functions || {}).map((method) => `${serviceName}/${method} (function)`),
+    ...Object.keys(service.queries || {}).map((method) => `${serviceName}/${method} (query)`),
+  ];
+}
+
+export const _listServiceMethodsForTests = listServiceMethods;
 
 /**
  * Build the dry-run output object for a function call.
@@ -419,3 +428,5 @@ async function decodeFunctionReply(
   const response = await result.response();
   return decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 }
+
+export const _decodeFunctionReplyForTests = decodeFunctionReply;
