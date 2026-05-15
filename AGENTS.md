@@ -152,7 +152,7 @@ vara-wallet discover 0x1234... --idl ./program.idl
 # Returns: all services, functions, queries, events with argument types
 ```
 
-For v2 programs with an embedded `sails:idl` WASM section, you can omit `--idl`:
+For programs with an embedded `sails:idl` WASM section, including Sails 0.10.4 IDL v1 programs, you can omit `--idl`:
 
 ```bash
 vara-wallet discover 0x1234...
@@ -368,7 +368,7 @@ over regex matching on `.error`.
 | `INVALID_ADDRESS` | Wrong shape for `actor_id` field | Pass a hex string (`0x` + 64 chars), SS58 address, or 32-byte array. Field name is in the message: `Invalid ActorId for "<field>": ...`. |
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network may be congested |
 | `TX_FAILED` | On-chain failure | Check events in output for details |
-| `IDL_NOT_FOUND` | No Sails IDL available | If error says "This is a v1 contract": `vara-wallet idl import <path.idl> --program <id>`. Otherwise pass `--idl <path>` for one-off use. |
+| `IDL_NOT_FOUND` | No Sails IDL available | If the error says the WASM has no `sails:idl` custom section, run `vara-wallet idl import <path.idl> --program <id>`. Otherwise pass `--idl <path>` for one-off use. |
 | `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read `meta.programMessage` for the contract-level cause. State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
 
 ## Addresses
@@ -489,7 +489,7 @@ echo $RESULT | jq '.events[] | select(.section == "balances" and .method == "Tra
 
 3. **Sails queries vs functions.** `call` auto-detects whether a method is a query (read-only, free) or function (state-changing, needs gas). You don't need to specify.
 
-4. **IDL resolution.** The `call`, `discover`, and `vft` commands need a Sails IDL. For v2 programs, vara-wallet auto-extracts the embedded `sails:idl` section from on-chain WASM and caches it locally. For v1 programs or overrides, provide `--idl <path>` or import the IDL with `vara-wallet idl import`.
+4. **IDL resolution.** The `call`, `discover`, and `vft` commands need a Sails IDL. For programs with an embedded `sails:idl` section, vara-wallet auto-extracts the IDL from on-chain WASM and caches it locally; this includes plain-text Sails IDL v1 (for example Sails 0.10.4) and v2 envelope formats. For programs without a usable embedded IDL, or for overrides, provide `--idl <path>` or import the IDL with `vara-wallet idl import`.
 
 5. **Hex strings for byte arrays.** When a Sails method expects `vec u8` or `[u8; N]`, you can pass hex strings like `"0xabcdef..."` in `--args` and they'll be auto-converted to byte arrays. No need to manually convert hex to number arrays.
 

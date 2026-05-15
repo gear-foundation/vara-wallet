@@ -209,7 +209,7 @@ High-level method invocation on Sails programs. Auto-detects queries vs function
 vara-wallet call <programId> <Service/Method> [--args <json> | --args-file <path>] [--value <v>] [--units human|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate] [--dry-run]
 ```
 
-For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the program's on-chain WASM — `--idl` is only needed for v1 programs (use `idl import`) or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch. Inspect or evict the cache with `vara-wallet idl list/remove/clear`.
+For programs that embed a `sails:idl` custom section, the IDL is auto-resolved from the program's on-chain WASM. This includes plain-text Sails IDL v1 (for example Sails 0.10.4) and v2 envelope formats. `--idl` is only needed when a program has no usable embedded IDL, or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch. Inspect or evict the cache with `vara-wallet idl list/remove/clear`.
 
 `--args-file <path>` reads the JSON args from a file instead of the `--args` string; use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures with nested JSON containing hex actor IDs or 64-byte `vec u8` signatures. Mutually exclusive with `--args` (`INVALID_ARGS_SOURCE`).
 
@@ -217,7 +217,7 @@ For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the progr
 
 The JSON response from a real submission includes an `events: [...]` field with any decoded Sails events emitted by the call, phase-correlated to the submitting extrinsic (cross-transaction events from the same block are excluded). Nested numeric leaves (`U256`, `u128`) inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user types are recursively decoded to decimal strings to match the declared IDL return type.
 
-With Sails v2 beta.2 programs, function replies and emitted events are decoded through the header-aware `sails-js` reply/event decoders before vara-wallet normalizes the JSON shape. Older beta.1-style embedded IDL sections still load through the raw `sails:idl` fallback, so existing deployed programs remain readable.
+With Sails v2 beta.2 programs, function replies and emitted events are decoded through the header-aware `sails-js` reply/event decoders before vara-wallet normalizes the JSON shape. Plain-text embedded IDLs, including Sails IDL v1 and older beta.1-style v2 sections, still load through the raw `sails:idl` fallback, so existing deployed programs remain readable.
 
 ### `discover` (Sails)
 
@@ -231,7 +231,7 @@ Same auto-resolution as `call`.
 
 ### `idl` (Sails IDL cache)
 
-Manage the local IDL cache at `~/.vara-wallet/idl-cache/`. The cache is populated automatically when v2 programs auto-resolve their IDL from on-chain WASM, or manually via `idl import` for v1 programs (no embedded IDL section).
+Manage the local IDL cache at `~/.vara-wallet/idl-cache/`. The cache is populated automatically when programs auto-resolve their IDL from on-chain WASM, or manually via `idl import` for programs without a usable embedded IDL section.
 
 ```bash
 vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)
@@ -437,7 +437,7 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `NO_ACCOUNT` | No account configured |
 | `TX_TIMEOUT` | Transaction not included in 60s |
 | `TX_FAILED` | On-chain extrinsic failure |
-| `IDL_NOT_FOUND` | No Sails IDL available. Distinguishes v1 contracts (no `sails:idl` WASM section — import manually) from chain-unavailable cases (RPC down, no program) |
+| `IDL_NOT_FOUND` | No Sails IDL available. Distinguishes readable WASM with no `sails:idl` section from chain-unavailable cases (RPC down, no program) |
 | `INVALID_ARGS_FORMAT` | `--args` shape mismatch. Sails methods take positional args; pass as JSON array. 1-arg struct methods also accept bare `{...}` (wrapped automatically) |
 | `INVALID_ADDRESS` | `actor_id` field received a non-string non-array value. Message names the offending field: `Invalid ActorId for "<name>": ...` |
 | `METHOD_NOT_FOUND` | Method not in Sails IDL |

@@ -19,7 +19,7 @@ const CODE_ID_HEX_RE = /^(0x)?[0-9a-fA-F]{64}$/;
  * `vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)`
  *
  * Seed the local IDL cache for a program whose IDL is not auto-discoverable
- * from the chain (v1 programs, or programs built with sails < 1.0.0-beta.1).
+ * from the chain because its WASM has no usable `sails:idl` custom section.
  * Once imported, `vara-wallet call/discover/vft/dex` can reach the IDL
  * without any further flags.
  *

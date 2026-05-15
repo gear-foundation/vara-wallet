@@ -279,9 +279,9 @@ async function resolveIdl(
   }
 
   // (3) Chain WASM.
-  // Track whether the chain probe deterministically identified this as a
-  // v1 contract (WASM exists but has no sails:idl section). Used below
-  // to render a precise error instead of hedging "v1 or v2".
+  // Track whether the chain probe deterministically found no embedded IDL:
+  // the WASM exists and is readable, but has no sails:idl section. This is a
+  // capability signal, not an IDL-version signal.
   let chainProbeReason: ExtractFromChainResult['reason'] | undefined;
   if (codeId) {
     const extracted = await tryExtractFromChain(api, codeId);
@@ -326,20 +326,20 @@ async function resolveIdl(
 
   // (5) All sources exhausted. Render an error keyed off the chain probe:
   // - 'no-section' is deterministic — the WASM was readable and has no
-  //   sails:idl section. That's a v1 contract; tell the user precisely.
-  // - 'unavailable' / undefined: we couldn't read the WASM, so we can't
-  //   tell v1 from v2. Hedge in that case only.
-  const isV1Contract = chainProbeReason === 'no-section';
-  const errMsg = isV1Contract
+  //   sails:idl section, so the user must provide an IDL out of band.
+  // - 'unavailable' / undefined: we couldn't read the WASM, so we cannot
+  //   tell whether embedded IDL exists.
+  const hasNoEmbeddedIdl = chainProbeReason === 'no-section';
+  const errMsg = hasNoEmbeddedIdl
     ? `No IDL available for program ${options.programId}.\n` +
-      `This is a v1 contract — the on-chain WASM has no \`sails:idl\` custom section.\n` +
+      `The on-chain WASM is readable, but it has no \`sails:idl\` custom section.\n` +
       `Import the IDL manually:\n` +
       `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
       `IDLs are typically shipped in the project's GitHub repo. Or use --idl <path.idl> for a one-off.`
     : `No IDL source available for program ${options.programId}.\n` +
-      `- v2 programs: the IDL is read from the on-chain WASM's \`sails:idl\` section.\n` +
+      `- Programs with embedded IDL: the IDL is read from the on-chain WASM's \`sails:idl\` section.\n` +
       `  Could not reach the chain or the program code is unavailable.\n` +
-      `- v1 programs: import the IDL manually:\n` +
+      `- Programs without embedded IDL: import the IDL manually:\n` +
       `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
       `  (IDLs are typically shipped in the project's GitHub repo.)\n` +
       `- One-off: pass --idl <path.idl>.\n` +
@@ -362,12 +362,12 @@ export async function _tryExtractFromChainForTests(
 }
 
 /** Outcome of an on-chain WASM IDL extraction.
- *  - `ok`: WASM had a sails:idl custom section (v2 contract).
+ *  - `ok`: WASM had a sails:idl custom section (plain-text v1 or v2 envelope).
  *  - `no-section`: WASM exists and was readable but had no sails:idl section.
- *    This is the deterministic v1-contract signal — caller can render an
- *    accurate "this is a v1 contract" message instead of hedging.
+ *    This is the deterministic "no embedded IDL" signal; it does not identify
+ *    the program's Sails version.
  *  - `unavailable`: couldn't read the WASM at all (no entry, RPC error,
- *    too large). Caller cannot infer v1 vs v2 from this.
+ *    too large). Caller cannot infer whether an embedded IDL exists.
  */
 type ExtractFromChainResult =
   | { idl: string; reason: 'ok' }
