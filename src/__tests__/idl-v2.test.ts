@@ -12,6 +12,15 @@ import * as fs from 'fs';
 const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'sample-v2.idl');
 
 describe('IDL v2 façade', () => {
+  it('pins sails-js to the beta.2 release tarball', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf-8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package-lock.json'), 'utf-8'));
+    const expected = 'https://github.com/gear-tech/sails/releases/download/js%2Fv1.0.0-beta.2/sails-js.tgz';
+    expect(pkg.devDependencies['sails-js']).toBe(expected);
+    expect(lock.packages[''].devDependencies['sails-js']).toBe(expected);
+    expect(lock.packages['node_modules/sails-js'].resolved).toBe(expected);
+  });
+
   it('parses the v2 fixture via parseIdlFileV2', async () => {
     const program = await parseIdlFileV2(FIXTURE_PATH);
     expect(isSailsV2(program)).toBe(true);
@@ -95,5 +104,12 @@ describe('IDL v2 façade', () => {
     expect(payload).toMatch(/^0x[0-9a-fA-F]+$/);
     // Header-only payload: exactly 16 bytes hex-encoded.
     expect(payload).toHaveLength(2 + 16 * 2);
+  });
+
+  it('rejects headerless v2 reply bytes in decodeResult', async () => {
+    const program = await parseIdlFileV2(FIXTURE_PATH);
+    if (!isSailsV2(program)) throw new Error('Expected v2');
+    const query = program.services.Demo.queries.GetPacket;
+    expect(() => query.decodeResult('0x00')).toThrow(/Invalid Sails header/);
   });
 });

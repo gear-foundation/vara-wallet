@@ -1,5 +1,5 @@
 import { GearApi } from '@gear-js/api';
-import { Sails, SailsProgram } from 'sails-js';
+import { Sails, SailsProgram, type Type, type TypeDecl, type TypeResolver } from 'sails-js';
 import { SailsIdlParser as V1Parser } from 'sails-js-parser';
 import { SailsIdlParser as V2Parser } from 'sails-js/parser';
 import type { Option, Bytes } from '@polkadot/types';
@@ -546,74 +546,50 @@ export function getSailsVersion(sails: LoadedSails): 'v1' | 'v2' {
   return isSailsV2(sails) ? 'v2' : 'v1';
 }
 
-/**
- * Per-instance cache of resolved type maps keyed by service scope.
- * Scoping matters for v2 because same-name types in different services
- * would otherwise collide in a flat global map.
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const registryTypesCache = new WeakMap<LoadedSails, Map<string, Map<string, any>>>();
+const registryTypesCache = new WeakMap<Sails, Map<string, any>>();
 
 /**
- * Get the type-name → user-defined-type map for a loaded Sails instance.
+ * Get the v1 type-name → user-defined-type map for a loaded Sails instance.
  *
- * - v1: reads `sails._program.types` (global flat map; v1 has no service
- *   type scoping). The `serviceName` arg is ignored for v1.
- * - v2: types live on `_doc.program.types` (program-level, rare) and on
- *   `_doc.services[i].types` (per-service, the common case). When
- *   `serviceName` is provided, the result includes program-level types
- *   PLUS only that service's types — this avoids cross-service
- *   collisions when two services declare the same-named struct/enum.
- *   When `serviceName` is omitted, all service types are flattened
- *   (caller accepts the collision risk; useful for global lookups like
- *   describeSailsProgram iteration).
+ * v2 callers should use beta.2 `TypeResolver` APIs directly, since
+ * service-local type scopes and generics are first-class there. This helper
+ * intentionally remains v1-only.
  *
- * Both branches reach into private fields — stable within the
- * 1.0.0-beta line and mirrors v1's access pattern. Results are cached
- * per (instance, scope) pair via a WeakMap so subsequent calls are O(1).
- *
- * Returns an empty map if the IDL has no user-defined types.
+ * Returns an empty map if the v1 IDL has no user-defined types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getRegistryTypes(sails: LoadedSails, serviceName?: string): Map<string, any> {
-  const cacheKey = serviceName ?? '__all__';
-  let scopedCache = registryTypesCache.get(sails);
-  if (!scopedCache) {
-    scopedCache = new Map();
-    registryTypesCache.set(sails, scopedCache);
-  }
-  const cached = scopedCache.get(cacheKey);
+export function getRegistryTypes(sails: Sails): Map<string, any> {
+  const cached = registryTypesCache.get(sails);
   if (cached) return cached;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const map = new Map<string, any>();
-  if (isSailsV2(sails)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const doc = (sails as any)._doc;
-    // Program-level types (ambient — visible to every service + ctors).
-    const programTypes = doc?.program?.types as Array<{ name: string }> | undefined;
-    if (programTypes) for (const t of programTypes) map.set(t.name, t);
-    // Service-local types.
-    const services = doc?.services as Array<{ name?: string; types?: Array<{ name: string }> }> | undefined;
-    if (services) {
-      if (serviceName) {
-        const target = services.find((s) => s.name === serviceName);
-        if (target?.types) for (const t of target.types) map.set(t.name, t);
-      } else {
-        for (const svc of services) {
-          if (svc.types) for (const t of svc.types) map.set(t.name, t);
-        }
-      }
-    }
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const types = (sails as any)._program?.types as Array<{ name: string; def: unknown }> | undefined;
-    if (types) {
-      for (const t of types) map.set(t.name, t.def);
-    }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const types = (sails as any)._program?.types as Array<{ name: string; def: unknown }> | undefined;
+  if (types) {
+    for (const t of types) map.set(t.name, t.def);
   }
-  scopedCache.set(cacheKey, map);
+  registryTypesCache.set(sails, map);
   return map;
+}
+
+export function getV2TypeResolver(sails: SailsProgram, serviceName?: string): TypeResolver {
+  if (serviceName) {
+    const service = sails.services[serviceName];
+    if (service) return service.typeResolver;
+  }
+  return sails.typeResolver;
+}
+
+export function resolveV2UserType(
+  sails: SailsProgram,
+  typeDecl: TypeDecl,
+  serviceName?: string,
+): Type | undefined {
+  if (serviceName) {
+    return sails.services[serviceName]?.typeResolver.resolveNamed(typeDecl);
+  }
+  return sails.typeResolver.resolveNamed(typeDecl);
 }
 
 /**
@@ -623,12 +599,20 @@ export function getRegistryTypes(sails: LoadedSails, serviceName?: string): Map<
  * v2 delegates to SailsProgram.typeResolver.getTypeDeclString which already
  * produces a canonical string representation (e.g. "Option<Vec<u8>>").
  */
-export function describeType(sails: LoadedSails, typeDef: unknown): string {
+export function describeType(sails: LoadedSails, typeDef: unknown, serviceName?: string): string {
   if (isSailsV2(sails)) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return sails.typeResolver.getTypeDeclString(typeDef as any);
+      return getV2TypeResolver(sails, serviceName).getTypeDeclString(typeDef as TypeDecl);
     } catch {
+      if (!serviceName) {
+        for (const service of Object.values(sails.services)) {
+          try {
+            return service.typeResolver.getTypeDeclString(typeDef as TypeDecl);
+          } catch {
+            // Try the next service scope before falling through.
+          }
+        }
+      }
       return 'unknown';
     }
   }
@@ -726,9 +710,9 @@ interface EventLike {
  * v1 events have no `.type` field; the v1 walker handles them via
  * `describeType(sails, event.typeDef)`.
  */
-function renderEventType(sails: LoadedSails, event: EventLike): string {
+function renderEventType(sails: LoadedSails, event: EventLike, serviceName: string): string {
   // v2: fast path when the library already stringified the type.
-  if (typeof event.type === 'string') return event.type;
+  if (typeof event.type === 'string') return renderEventTypeString(event.type);
 
   // v2 named-field case: typeDef is IServiceEvent with a `fields` array.
   if (isSailsV2(sails)) {
@@ -737,16 +721,16 @@ function renderEventType(sails: LoadedSails, event: EventLike): string {
     if (Array.isArray(fields) && fields.length > 0) {
       // All fields named: render as struct.
       if (fields.every((f) => typeof f.name === 'string' && f.name.length > 0)) {
-        const parts = fields.map((f) => `${f.name}: ${describeType(sails, f.type)}`);
+        const parts = fields.map((f) => `${f.name}: ${describeType(sails, f.type, serviceName)}`);
         return `{ ${parts.join(', ')} }`;
       }
       // All fields unnamed: render as tuple.
       if (fields.every((f) => !f.name)) {
-        const parts = fields.map((f) => describeType(sails, f.type));
+        const parts = fields.map((f) => describeType(sails, f.type, serviceName));
         return parts.length === 1 ? parts[0] : `(${parts.join(', ')})`;
       }
       // Mixed: fall back to struct form, skipping unnamed slots.
-      const parts = fields.map((f, i) => `${f.name ?? `_${i}`}: ${describeType(sails, f.type)}`);
+      const parts = fields.map((f, i) => `${f.name ?? `_${i}`}: ${describeType(sails, f.type, serviceName)}`);
       return `{ ${parts.join(', ')} }`;
     }
     // Empty fields on a v2 event means unit variant; library usually
@@ -756,7 +740,23 @@ function renderEventType(sails: LoadedSails, event: EventLike): string {
   }
 
   // v1 fallback: walk the v1 TypeDef accessor shape.
-  return describeType(sails, event.typeDef);
+  return describeType(sails, event.typeDef, serviceName);
+}
+
+function renderEventTypeString(type: string): string {
+  if (!type.startsWith('{')) return type;
+  try {
+    const parsed = JSON.parse(type) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const entries = Object.entries(parsed as Record<string, unknown>);
+      if (entries.length > 0 && entries.every(([, value]) => typeof value === 'string')) {
+        return `{ ${entries.map(([key, value]) => `${key}: ${value}`).join(', ')} }`;
+      }
+    }
+  } catch {
+    // Non-JSON type strings like "Null", "u32", and "Option<u32>" pass through.
+  }
+  return type;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -827,9 +827,9 @@ export function suggestMethod(
   const exactHits: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
     const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
-    for (const m of methodNames) {
-      if (m.toLowerCase() === lowerMethod && !(svcName === serviceName && m === methodName)) {
-        exactHits.push(`${svcName}/${m}`);
+    for (const candidateMethod of methodNames) {
+      if (candidateMethod.toLowerCase() === lowerMethod && !(svcName === serviceName && candidateMethod === methodName)) {
+        exactHits.push(`${svcName}/${candidateMethod}`);
       }
     }
   }
@@ -843,17 +843,17 @@ export function suggestMethod(
   let bestMatches: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
     const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
-    for (const m of methodNames) {
+    for (const candidateMethod of methodNames) {
       // Skip identity (shouldn't happen — caller already checked the
       // method is missing — but defensive).
-      if (svcName === serviceName && m === methodName) continue;
-      const d = levenshtein(methodName, m, cap);
-      if (d > cap) continue;
-      if (d < bestDist) {
-        bestDist = d;
-        bestMatches = [`${svcName}/${m}`];
-      } else if (d === bestDist) {
-        bestMatches.push(`${svcName}/${m}`);
+      if (svcName === serviceName && candidateMethod === methodName) continue;
+      const distance = levenshtein(methodName, candidateMethod, cap);
+      if (distance > cap) continue;
+      if (distance < bestDist) {
+        bestDist = distance;
+        bestMatches = [`${svcName}/${candidateMethod}`];
+      } else if (distance === bestDist) {
+        bestMatches.push(`${svcName}/${candidateMethod}`);
       }
     }
   }
@@ -882,15 +882,15 @@ export function suggestService(sails: LoadedSails, serviceName: string): string 
   const cap = 2;
   let bestDist = cap + 1;
   let bestMatches: string[] = [];
-  for (const s of services) {
-    if (s === serviceName) continue;
-    const d = levenshtein(serviceName, s, cap);
-    if (d > cap) continue;
-    if (d < bestDist) {
-      bestDist = d;
-      bestMatches = [s];
-    } else if (d === bestDist) {
-      bestMatches.push(s);
+  for (const candidateService of services) {
+    if (candidateService === serviceName) continue;
+    const distance = levenshtein(serviceName, candidateService, cap);
+    if (distance > cap) continue;
+    if (distance < bestDist) {
+      bestDist = distance;
+      bestMatches = [candidateService];
+    } else if (distance === bestDist) {
+      bestMatches.push(candidateService);
     }
   }
   if (bestMatches.length === 1) return bestMatches[0];
@@ -914,9 +914,9 @@ export function describeSailsProgram(sails: LoadedSails): Record<string, unknown
       functions[funcName] = {
         args: func.args.map((a) => ({
           name: a.name,
-          type: describeType(sails, a.typeDef),
+          type: describeType(sails, a.typeDef, serviceName),
         })),
-        returnType: describeType(sails, func.returnTypeDef),
+        returnType: describeType(sails, func.returnTypeDef, serviceName),
         docs: func.docs || null,
       };
     }
@@ -925,16 +925,16 @@ export function describeSailsProgram(sails: LoadedSails): Record<string, unknown
       queries[queryName] = {
         args: query.args.map((a) => ({
           name: a.name,
-          type: describeType(sails, a.typeDef),
+          type: describeType(sails, a.typeDef, serviceName),
         })),
-        returnType: describeType(sails, query.returnTypeDef),
+        returnType: describeType(sails, query.returnTypeDef, serviceName),
         docs: query.docs || null,
       };
     }
 
     for (const [eventName, event] of Object.entries(service.events)) {
       events[eventName] = {
-        type: renderEventType(sails, event),
+        type: renderEventType(sails, event, serviceName),
         docs: event.docs || null,
       };
     }

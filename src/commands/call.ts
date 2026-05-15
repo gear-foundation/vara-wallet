@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
+import { loadSailsAuto, suggestMethod, suggestService, isSailsV2, type LoadedSails } from '../services/sails';
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
@@ -82,12 +82,7 @@ export function registerCallCommand(program: Command): void {
       const isFunction = methodName in service.functions;
 
       if (!isQuery && !isFunction) {
-        const description = describeSailsProgram(sails);
-        const serviceDesc = description[serviceName] as Record<string, Record<string, unknown>>;
-        const allMethods = [
-          ...Object.keys(serviceDesc.functions || {}).map((m) => `${serviceName}/${m} (function)`),
-          ...Object.keys(serviceDesc.queries || {}).map((m) => `${serviceName}/${m} (query)`),
-        ];
+        const allMethods = listServiceMethods(serviceName, service);
         const hint = suggestMethod(sails, serviceName, methodName);
         const prefix = hint ? `Did you mean: ${hint}? ` : '';
         throw new CliError(
@@ -107,7 +102,7 @@ export function registerCallCommand(program: Command): void {
             'VOUCHER_ON_QUERY',
           );
         }
-        await executeQuery(api, sails, serviceName, methodName, args, opts, !!options.dryRun);
+        await executeQuery(sails, serviceName, methodName, args, opts, !!options.dryRun);
       } else {
         await executeFunction(api, sails, serviceName, methodName, args, options, opts, programId);
       }
@@ -144,6 +139,18 @@ export function _resolveDryRunPayloadForTests(
     destination: txBuilder.programId,
   };
 }
+
+function listServiceMethods(
+  serviceName: string,
+  service: { functions?: Record<string, unknown>; queries?: Record<string, unknown> },
+): string[] {
+  return [
+    ...Object.keys(service.functions || {}).map((method) => `${serviceName}/${method} (function)`),
+    ...Object.keys(service.queries || {}).map((method) => `${serviceName}/${method} (query)`),
+  ];
+}
+
+export const _listServiceMethodsForTests = listServiceMethods;
 
 /**
  * Build the dry-run output object for a function call.
@@ -210,7 +217,6 @@ export function buildQueryDryRun(input: {
 }
 
 async function executeQuery(
-  _api: unknown,
   sails: LoadedSails,
   serviceName: string,
   methodName: string,
@@ -276,14 +282,13 @@ async function executeFunction(
   //   both together  : encode payload AND compute gas, account required.
   //   neither        : real submission (further down).
   //
-  // _resolveDryRunPayloadForTests is the canonical encoder seam (also
-  // exported as a regression hook). The dry-run+estimate path falls
-  // through to gas calc, which mutates txBuilder via
-  // withAccount/withValue/calculateGas — same instance, no rebuild.
+  // The dry-run+estimate path falls through to gas calc, which mutates
+  // txBuilder via withAccount/withValue/calculateGas — same instance,
+  // no rebuild.
   const txBuilder = func(...args);
-  const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
 
   if (options.dryRun && !options.estimate) {
+    const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
     output(buildFunctionDryRun({
       service: serviceName,
       method: methodName,
@@ -324,10 +329,12 @@ async function executeFunction(
   }
 
   if (options.estimate) {
-    const gasLimitStr = (txBuilder.gasInfo as any)?.limit?.toString() ?? txBuilder.gasInfo?.min_limit?.toString() ?? null;
-    const minLimitStr = txBuilder.gasInfo?.min_limit?.toString() ?? null;
+    const gasInfo = txBuilder.gasInfo as { limit?: { toString(): string }; min_limit?: { toString(): string } } | undefined;
+    const gasLimitStr = gasInfo?.limit?.toString() ?? gasInfo?.min_limit?.toString() ?? null;
+    const minLimitStr = gasInfo?.min_limit?.toString() ?? null;
 
     if (options.dryRun) {
+      const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
       // Composition: dry-run shape with estimateGas appended.
       output(buildFunctionDryRun({
         service: serviceName,
@@ -359,21 +366,18 @@ async function executeFunction(
   }
 
   const result = await txBuilder.signAndSend();
-  let response;
+  let decoded;
   try {
-    response = await result.response();
+    decoded = await decodeFunctionReply(result, sails, func, serviceName);
   } catch (err) {
     throw classifyProgramError(err);
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
-  const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
-
-  // Phase-correlated block-event scan (#37). Walks system.events() at the
-  // inclusion block, restricting to records emitted by OUR extrinsic
-  // (via phase index match) and our programId, then runs each through
-  // decodeSailsEvent. Always-on, additive — `events` is a new key, never
-  // replaces or renames anything in the existing reply shape.
+  // Walk system.events() at the inclusion block, restricting to records
+  // emitted by our extrinsic and programId, then decode matching Sails
+  // events. Always-on, additive — `events` is a new key, never replaces or
+  // renames anything in the existing reply shape.
   // sails-js `IMethodReturnType` declares blockHash/txHash as `HexString`
   // (= `0x${string}`) and the runtime (`transaction-builder.js`) returns them
   // already converted via `.toHex()`. No cast needed; pass straight through.
@@ -396,3 +400,33 @@ async function executeFunction(
     events,
   });
 }
+
+async function decodeFunctionReply(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: { response: (rawResult?: boolean) => Promise<any> },
+  sails: LoadedSails,
+  func: { returnTypeDef: unknown },
+  serviceName: string,
+): Promise<unknown> {
+  if (isSailsV2(sails)) {
+    const rawPayload = await result.response(true);
+    const reply = sails.decodeReply(rawPayload);
+    if (reply.kind === 'reply') {
+      const entry = reply.entry as { service: string; fn: string };
+      const replyFunc = sails.services[entry.service]?.functions[entry.fn]
+        ?? sails.services[entry.service]?.queries[entry.fn];
+      return decodeSailsResult(
+        sails,
+        replyFunc?.returnTypeDef ?? func.returnTypeDef,
+        reply.result,
+        entry.service,
+      );
+    }
+    verbose(`decodeFunctionReply: v2 decodeReply returned ${reply.reason}; falling back to builder decode`);
+  }
+
+  const response = await result.response();
+  return decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
+}
+
+export const _decodeFunctionReplyForTests = decodeFunctionReply;

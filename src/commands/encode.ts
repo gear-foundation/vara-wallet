@@ -172,7 +172,7 @@ export function registerEncodeCommand(program: Command): void {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           // v2 decodeResult expects a 16-byte SailsMessageHeader prefix at the
-          // start of the bytes (see sails-js v1.0.0-beta.1 sails-idl-v2.ts).
+          // start of the bytes.
           // Surface the hint only when we know the IDL is v2 — v1 users
           // would find the header reference misleading.
           const hint = isSailsV2(sails)

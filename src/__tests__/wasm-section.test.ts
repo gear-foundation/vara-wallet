@@ -44,6 +44,13 @@ describe('extractSailsIdl', () => {
     await expect(extractSailsIdl(wasm)).resolves.toBe(idl);
   });
 
+  it('returns the beta.2 enveloped IDL before raw-section fallback', async () => {
+    const idl = '!@sails: 1.0.0-beta.2\nservice Counter@0x1234567890abcdef {}';
+    const envelope = new Uint8Array([0x01, 0x00, ...encoder.encode(idl)]);
+    const wasm = buildWasm([{ name: 'sails:idl', payload: envelope }]);
+    await expect(extractSailsIdl(wasm)).resolves.toBe(idl);
+  });
+
   it('returns null when no custom sections are present', async () => {
     await expect(extractSailsIdl(WASM_HEADER)).resolves.toBeNull();
   });

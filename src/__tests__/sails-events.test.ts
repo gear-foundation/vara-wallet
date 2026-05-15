@@ -1,7 +1,7 @@
 /**
  * Unit tests for `services/sails-events.ts`:
  *
- * - listEventNames flattens v2 service.extends recursively (Codex finding #7)
+ * - listEventNames flattens v2 service.extends recursively
  * - resolveEventName accepts Service/Event and bare-name forms
  * - resolveEventName throws AMBIGUOUS_EVENT for multi-service bare names
  * - decodeSailsEvent returns null when no event matches the payload prefix
@@ -28,20 +28,14 @@ describe('listEventNames', () => {
   it('lists every event in a flat single-service IDL', async () => {
     const sails: LoadedSails = await parseIdlFileV2(EVENTS_FIXTURE);
     const names = listEventNames(sails).map((x) => `${x.service}/${x.event}`).sort();
-    expect(names).toEqual(['Walker/Stopped', 'Walker/StepCount', 'Walker/Walked'].sort());
+    expect(names).toEqual(['Walker/BalanceChanged', 'Walker/Stopped', 'Walker/StepCount', 'Walker/Walked'].sort());
   });
 
   it('flattens v2 service.extends recursively', async () => {
     const sails: LoadedSails = await parseIdlFileV2(EXTENDS_FIXTURE);
     const names = listEventNames(sails).map((x) => `${x.service}/${x.event}`).sort();
-    // `Composite` extends `Base`, so `BaseEvent` should appear under both
-    // its own declaration AND through Composite's extends chain.
     expect(names).toContain('Base/BaseEvent');
     expect(names).toContain('Composite/OwnEvent');
-    expect(names).toContain('Base/BaseEvent'); // base direct
-    // Walker extends propagation: when traversed via Composite, Base's
-    // events show up under Base's own service name (sails-js wires it
-    // that way in `service.extends`).
   });
 });
 

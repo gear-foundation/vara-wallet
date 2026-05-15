@@ -52,23 +52,17 @@ describe('v2 generic substitution', () => {
     ).toThrow(/\[u8; 8\]/);
   });
 
-  it('substitutes type_params directly via the walker', async () => {
-    // Minimal direct test: simulate a call site handing a generic
-    // reference {name:'T'} with a substitution map. This documents the
-    // one-level lookup semantics that the broader substitution walk
-    // builds on.
-    const typeMap = new Map<string, unknown>();
-    const subs = new Map<string, unknown>([['T', { kind: 'slice', item: 'u8' }]]);
+  it('uses beta.2 TypeResolver concrete generic definitions directly', async () => {
+    const program = await parseIdlFileV2(FIXTURE);
+    const setPayload = program.services.Gen.functions.SetPayload;
     const out = coerceHexToBytesV2(
-      '0xabcd',
+      { id: 1, payload: '0xabcd' },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { kind: 'named', name: 'T' } as any,
+      (setPayload.args[0] as any).typeDef,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      typeMap as any,
-      undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      subs as any,
-    );
-    expect(out).toEqual([0xab, 0xcd]);
+      program.services.Gen.typeResolver as any,
+      'p',
+    ) as { payload: number[] };
+    expect(out.payload).toEqual([0xab, 0xcd]);
   });
 });

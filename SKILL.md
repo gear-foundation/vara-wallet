@@ -79,7 +79,7 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW message send <dest> [--payload <hex>] [--value <v>]` | Send message to any actor (program, user, wallet) — also usable for VARA transfers with custom payload |
 | `$VW message reply <mid> [--payload <hex>]` | Reply to a message |
 | `$VW mailbox claim <messageId>` | Claim value from mailbox message |
-| `$VW call <pid> Service/Function --args '[...]' --value <v> --units vara\|raw --idl <path>` | Sails state-changing call |
+| `$VW call <pid> Service/Function --args '[...]' --value <v> --units human\|raw --idl <path>` | Sails state-changing call |
 | `$VW call <pid> Service/Function --estimate --idl <path>` | Estimate gas cost without sending |
 | `$VW vft transfer <token> <to> <amount> --idl <path>` | Transfer fungible tokens |
 | `$VW vft approve <token> <spender> <amount> --idl <path>` | Approve token spender |
@@ -204,12 +204,13 @@ $VW vft transfer $TOKEN $TO 1000 --voucher $VOUCHER_ID
 
 ## IDL Resolution
 
-Sails commands (`call`, `discover`, `vft`) require an IDL. Currently:
+Sails commands (`call`, `discover`, `vft`) require an IDL. Current resolution:
 
 - **`--idl <path>`** — local file, always works
-- **`VARA_META_STORAGE`** — remote fetch by program codeId (no public registry yet)
+- **Embedded v2 `sails:idl` section** — auto-extracted from on-chain WASM and cached by code ID
+- **`vara-wallet idl import`** — seeds the cache for v1 programs or out-of-band IDLs
 
-For now, always provide `--idl <path>`. Public IDL registry is planned for a future release.
+For v2 programs, `call` and `discover` can usually omit `--idl`. For v1 programs, provide `--idl <path>` for one-off use or import the IDL once.
 
 ## Output Parsing
 

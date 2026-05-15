@@ -1,5 +1,6 @@
 /**
- * Post-process a sails-js query/function reply into a fully-decoded JSON tree.
+ * Normalize a sails-js decoded value into the stable JSON shape exposed by
+ * vara-wallet.
  *
  * Motivation: sails-js decodes the top-level codec with toBigInt/toString for a
  * handful of primitives and with .toJSON() for everything else. Polkadot's
@@ -7,33 +8,35 @@
  * for any codec wider than JSON numbers can hold (U256, u128, u64 in some
  * configurations). The result: top-level U256 gets a decimal string, but the
  * same U256 nested inside Option / Vec / struct stays as raw hex. Agents
- * wrapping the CLI have to re-parse those hex blobs, which is the bug
- * reported in issue #32.
+ * wrapping the CLI would otherwise have to re-parse those hex blobs.
  *
- * Fix: walk the declared return type (ISailsTypeDef) against the already-
- * decoded JS value and rewrite numeric leaves (hex string OR bigint) to a
- * decimal string. The walker is type-driven, not value-driven, so we never
- * confuse an ActorId hex with a numeric hex.
+ * This does not replace sails-js decoding. It walks the declared return type
+ * against an already-decoded JS value and rewrites numeric leaves (hex string
+ * OR bigint) to decimal strings.
  *
  * V1 typeDef shape (from sails-js-types 0.5.1 accessor interface):
  *   { isPrimitive, asPrimitive, isOptional, asOptional, isVec, asVec,
  *     isStruct, asStruct, isEnum, asEnum, isResult, asResult, isMap, asMap,
  *     isFixedSizeArray, asFixedSizeArray, isUserDefined, asUserDefined }
  *
- * V2 typeDef shape (verified against sails-js 1.0.0-beta.1 parser output):
+ * V2 typeDef shape (sails-js 1.0.0-beta.2 parser output):
  *   Node = string | { kind, ... }
  *   - bare string      → primitive name, e.g. "u32", "String", "u256"
+ *   - {kind:"generic"} → { name } — type parameter leaf inside raw generic definitions
  *   - {kind:"named"}   → { name, generics?: Node[] } — Option / Result / user-defined
  *   - {kind:"tuple"}   → { types: Node[] }
  *   - {kind:"slice"}   → { item: Node }            — `vec T`
  *   - {kind:"array"}   → { item: Node, len: number } — `[T; N]`
- *   User-defined types (_doc.services[i].types):
+ *   - {fields:[...]}   → service event payload wrapper
+ *   User-defined types (resolved through beta.2 TypeResolver):
  *     { name, kind:"struct", fields: [{name, type}] }
  *     { name, kind:"enum",   variants: [{name, fields: [{name?, type}]}] }
  */
 
-import { LoadedSails, isSailsV2, getRegistryTypes, describeType } from '../services/sails';
+import { isSailsV2, getRegistryTypes, describeType, resolveV2UserType } from '../services/sails';
 import { verbose } from './output';
+import type { LoadedSails } from '../services/sails';
+import type { Sails, SailsProgram, Type, TypeDecl } from 'sails-js';
 
 type V2Node = string | { kind: string; [k: string]: unknown };
 
@@ -73,7 +76,7 @@ function walk(sails: LoadedSails, typeDef: unknown, value: unknown, serviceName:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type V1TypeDef = any;
 
-function walkV1(sails: LoadedSails, td: V1TypeDef, value: unknown, serviceName: string): unknown {
+function walkV1(sails: Sails, td: V1TypeDef, value: unknown, serviceName: string): unknown {
   if (td.isPrimitive) return decodePrimitive(primitiveV1Name(td.asPrimitive), value);
 
   if (td.isOptional) return decodeOption(value, (inner) => walkV1(sails, td.asOptional.def, inner, serviceName));
@@ -135,7 +138,7 @@ function walkV1(sails: LoadedSails, td: V1TypeDef, value: unknown, serviceName: 
   }
 
   if (td.isUserDefined) {
-    const resolved = getRegistryTypes(sails, serviceName).get(td.asUserDefined.name);
+    const resolved = getRegistryTypes(sails).get(td.asUserDefined.name);
     if (!resolved) return fallback(sails, td, value, `user-defined type "${td.asUserDefined.name}" not in registry`);
     return walkV1(sails, resolved, value, serviceName);
   }
@@ -181,8 +184,11 @@ function v1VariantIsUnit(def: V1TypeDef): boolean {
 // V2 walker — object form (kind-discriminated)
 // ────────────────────────────────────────────────────────────────────────
 
-function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: string): unknown {
+function walkV2(sails: SailsProgram, node: V2Node, value: unknown, serviceName: string): unknown {
   if (typeof node === 'string') return decodePrimitive(normalizePrimV2(node), value);
+  if (Array.isArray(node.fields)) {
+    return walkV2EventFields(sails, node as { fields?: Array<{ name?: string; type: V2Node }> }, value, serviceName);
+  }
 
   switch (node.kind) {
     case 'slice': {
@@ -204,6 +210,9 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
       return items.map((t, i) => walkV2(sails, t, value[i], serviceName));
     }
 
+    case 'generic':
+      return value;
+
     case 'named': {
       const name = node.name as string;
       const generics = (node.generics as V2Node[] | undefined) ?? [];
@@ -217,10 +226,9 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
           (err) => walkV2(sails, generics[1], err, serviceName),
         );
       }
-      // User-defined type — resolve from registry, then recurse on its body.
-      const resolved = getRegistryTypes(sails, serviceName).get(name) as
-        | { kind?: string; fields?: Array<{ name?: string; type: V2Node }>; variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }> }
-        | undefined;
+      // User-defined type — resolve through the scoped beta.2 resolver so
+      // same-named service types do not collide and generics are concrete.
+      const resolved = resolveV2UserType(sails, node as unknown as TypeDecl, serviceName) as V2UserType | undefined;
       if (!resolved) return fallback(sails, node, value, `user-defined type "${name}" not in registry`);
       return walkV2UserType(sails, resolved, value, serviceName);
     }
@@ -230,9 +238,34 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
   }
 }
 
+function walkV2EventFields(
+  sails: SailsProgram,
+  event: { fields?: Array<{ name?: string; type: V2Node }> },
+  value: unknown,
+  serviceName: string,
+): unknown {
+  const fields = event.fields ?? [];
+  if (fields.length === 0) return null;
+  if (fields.length === 1 && !fields[0].name) {
+    return walkV2(sails, fields[0].type, value, serviceName);
+  }
+  if (fields.every((f) => !!f.name)) {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+      return fallback(sails, event, value, 'expected event payload to be an object');
+    }
+    return decodeStructFields(
+      fields.map((f) => ({ name: f.name as string, def: f.type as unknown })),
+      value as Record<string, unknown>,
+      (fdef, fvalue) => walkV2(sails, fdef as V2Node, fvalue, serviceName),
+    );
+  }
+  if (!Array.isArray(value)) return fallback(sails, event, value, 'expected tuple-shaped event payload to be an array');
+  return fields.map((f, i) => walkV2(sails, f.type, value[i], serviceName));
+}
+
 function walkV2UserType(
-  sails: LoadedSails,
-  udt: { kind?: string; fields?: Array<{ name?: string; type: V2Node }>; variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }> },
+  sails: SailsProgram,
+  udt: V2UserType,
   value: unknown,
   serviceName: string,
 ): unknown {
@@ -241,7 +274,7 @@ function walkV2UserType(
     const isTuple = fields.length > 0 && fields.every((f) => !f.name);
     if (isTuple) {
       if (!Array.isArray(value)) return fallback(sails, udt, value, 'expected tuple-struct value to be an array');
-      return fields.map((f, i) => walkV2(sails, f.type, value[i], serviceName));
+      return fields.map((f, i) => walkV2(sails, f.type as V2Node, value[i], serviceName));
     }
     if (value == null || typeof value !== 'object' || Array.isArray(value)) {
       return fallback(sails, udt, value, 'expected struct value to be an object');
@@ -267,7 +300,7 @@ function walkV2UserType(
 }
 
 function walkV2EnumPayload(
-  sails: LoadedSails,
+  sails: SailsProgram,
   variant: { fields?: Array<{ name?: string; type: V2Node }> },
   payload: unknown,
   serviceName: string,
@@ -291,8 +324,13 @@ function walkV2EnumPayload(
   }
   // Mixed — tuple-like.
   if (!Array.isArray(payload)) return fallback(sails, variant, payload, 'expected tuple-shaped enum payload to be an array');
-  return fields.map((f, i) => walkV2(sails, f.type, payload[i], serviceName));
+  return fields.map((f, i) => walkV2(sails, f.type as V2Node, payload[i], serviceName));
 }
+
+type V2UserType = Type & {
+  fields?: Array<{ name?: string; type: V2Node }>;
+  variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }>;
+};
 
 function normalizePrimV2(s: string): string {
   // Lowercase then strip underscores so snake_case ("actor_id") and
@@ -309,8 +347,8 @@ function normalizePrimV2(s: string): string {
   if (lower === 'char') return 'char';
   if (lower === 'null' || lower === '()') return 'null';
   // ints — u8..u256, i8..i128, nonzero-*
-  const m = lower.match(/^(?:nonzero)?(u|i)(\d+)$/);
-  if (m) return `${m[1]}${m[2]}`;
+  const intMatch = lower.match(/^(?:nonzero)?(u|i)(\d+)$/);
+  if (intMatch) return `${intMatch[1]}${intMatch[2]}`;
   return lower;
 }
 
@@ -360,14 +398,12 @@ function decodeOption(value: unknown, decodeInner: (v: unknown) => unknown): unk
   if (value == null) return null;
   // Belt-and-suspenders: unwrap {Some: x} / {None: null} if polkadot ever emits
   // the non-flattened shape (it usually doesn't).
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const k = keys[0].toLowerCase();
-      if (k === 'none') return null;
-      if (k === 'some') return decodeInner(obj[keys[0]]);
-    }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [key, inner] = entry;
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'none') return null;
+    if (lowerKey === 'some') return decodeInner(inner);
   }
   return decodeInner(value);
 }
@@ -377,14 +413,12 @@ function decodeResult(
   decodeOk: (v: unknown) => unknown,
   decodeErr: (v: unknown) => unknown,
 ): unknown {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const k = keys[0].toLowerCase();
-      if (k === 'ok') return { kind: 'Ok', value: decodeOk(obj[keys[0]]) };
-      if (k === 'err') return { kind: 'Err', value: decodeErr(obj[keys[0]]) };
-    }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [key, payload] = entry;
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'ok') return { kind: 'Ok', value: decodeOk(payload) };
+    if (lowerKey === 'err') return { kind: 'Err', value: decodeErr(payload) };
   }
   return value;
 }
@@ -410,26 +444,31 @@ function decodeEnum(
 ): unknown {
   // Unit variant emitted as a bare string.
   if (typeof value === 'string') {
-    const match = variants.find((v) => v.name.toLowerCase() === value.toLowerCase());
+    const lowerValue = value.toLowerCase();
+    const match = variants.find((v) => v.name.toLowerCase() === lowerValue);
     if (match) return { kind: match.name };
     return value;
   }
   // Payload variant emitted as {variantName: payload}.
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const keys = Object.keys(value as Record<string, unknown>);
-    if (keys.length === 1) {
-      const jsonKey = keys[0];
-      const match = variants.find((v) => v.name.toLowerCase() === jsonKey.toLowerCase()
-        || lowerFirst(v.name) === jsonKey);
-      if (match) {
-        const payload = (value as Record<string, unknown>)[jsonKey];
-        if (isUnit(match.def)) return { kind: match.name };
-        const decoded = decodeVariant(match.def, payload);
-        return decoded === undefined ? { kind: match.name } : { kind: match.name, value: decoded };
-      }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [jsonKey, payload] = entry;
+    const lowerJsonKey = jsonKey.toLowerCase();
+    const match = variants.find((v) => v.name.toLowerCase() === lowerJsonKey || lowerFirst(v.name) === jsonKey);
+    if (match) {
+      if (isUnit(match.def)) return { kind: match.name };
+      const decoded = decodeVariant(match.def, payload);
+      return decoded === undefined ? { kind: match.name } : { kind: match.name, value: decoded };
     }
   }
   return value;
+}
+
+function singleObjectEntry(value: unknown): [string, unknown] | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  return keys.length === 1 ? [keys[0], obj[keys[0]]] : null;
 }
 
 function findKeyCaseInsensitiveFirst(obj: Record<string, unknown>, declared: string): string | undefined {

@@ -23,9 +23,11 @@ describe('describeSailsProgram — v2 event payload rendering', () => {
     // Single unnamed payload — pre-rendered by TypeResolver.
     expect(events.StepCount.type).toBe('u32');
 
-    // Named-field event — our custom renderer handles this.
+    // Named-field event — beta.2 may expose this as a JSON string; the
+    // wallet normalizes it back to the existing compact struct-style output.
     expect(events.Walked.type).toMatch(/from:\s*\(i32,\s*i32\),\s*to:\s*\(i32,\s*i32\)/);
     expect(events.Walked.type).not.toBe('unknown');
+    expect(events.BalanceChanged.type).toBe('{ amount: U256 }');
 
     // Doc strings propagated for all three.
     expect(events.Stopped.docs).toContain('Unit variant');

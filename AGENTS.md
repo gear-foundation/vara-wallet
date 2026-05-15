@@ -152,10 +152,9 @@ vara-wallet discover 0x1234... --idl ./program.idl
 # Returns: all services, functions, queries, events with argument types
 ```
 
-If the program's IDL is registered in meta-storage, you can omit `--idl`:
+For v2 programs with an embedded `sails:idl` WASM section, you can omit `--idl`:
 
 ```bash
-export VARA_META_STORAGE=https://idea.gear-tech.io/api
 vara-wallet discover 0x1234...
 ```
 
@@ -490,7 +489,7 @@ echo $RESULT | jq '.events[] | select(.section == "balances" and .method == "Tra
 
 3. **Sails queries vs functions.** `call` auto-detects whether a method is a query (read-only, free) or function (state-changing, needs gas). You don't need to specify.
 
-4. **IDL resolution.** The `call`, `discover`, and `vft` commands need a Sails IDL. Provide `--idl <path>` or set `VARA_META_STORAGE` for remote fetch by program codeId.
+4. **IDL resolution.** The `call`, `discover`, and `vft` commands need a Sails IDL. For v2 programs, vara-wallet auto-extracts the embedded `sails:idl` section from on-chain WASM and caches it locally. For v1 programs or overrides, provide `--idl <path>` or import the IDL with `vara-wallet idl import`.
 
 5. **Hex strings for byte arrays.** When a Sails method expects `vec u8` or `[u8; N]`, you can pass hex strings like `"0xabcdef..."` in `--args` and they'll be auto-converted to byte arrays. No need to manually convert hex to number arrays.
 

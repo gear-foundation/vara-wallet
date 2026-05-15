@@ -217,6 +217,8 @@ For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the progr
 
 The JSON response from a real submission includes an `events: [...]` field with any decoded Sails events emitted by the call, phase-correlated to the submitting extrinsic (cross-transaction events from the same block are excluded). Nested numeric leaves (`U256`, `u128`) inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user types are recursively decoded to decimal strings to match the declared IDL return type.
 
+With Sails v2 beta.2 programs, function replies and emitted events are decoded through the header-aware `sails-js` reply/event decoders before vara-wallet normalizes the JSON shape. Older beta.1-style embedded IDL sections still load through the raw `sails:idl` fallback, so existing deployed programs remain readable.
+
 ### `discover` (Sails)
 
 Introspect a Sails program's services, functions, queries, and events.

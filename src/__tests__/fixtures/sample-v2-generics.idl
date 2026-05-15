@@ -8,10 +8,12 @@
 // walker would leave hex strings uncoerced because it'd recurse into
 // the literal type_param `T` rather than the caller's chosen type.
 
-service Gen@0xd80c9eabb287b035 {
+service Gen@0xdf750cb5462f5a1b {
     functions {
         SetPayload(p: Envelope<[u8]>);
         SetFixed(p: Envelope<[u8; 8]>);
+        @query
+        ReadAmount() -> Envelope<u256>;
     }
     types {
         struct Envelope<T> {
@@ -24,6 +26,6 @@ service Gen@0xd80c9eabb287b035 {
 program Demo {
     constructors { Default(); }
     services {
-        Gen@0xd80c9eabb287b035,
+        Gen@0xdf750cb5462f5a1b,
     }
 }
