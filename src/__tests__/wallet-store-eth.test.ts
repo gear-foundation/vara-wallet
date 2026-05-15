@@ -6,12 +6,13 @@
  * user's real `~/.vara-wallet/`.
  */
 
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 import { encryptKeystore, TEST_SCRYPT_PARAMS } from '../shared/keyring-eth/keystore';
 import {
+  __resetMigrationFlagForTests,
   ethexeWalletExists,
   listEthexeWallets,
   loadEthexeWallet,
@@ -33,6 +34,7 @@ const savedEnv = process.env.VARA_WALLET_DIR;
 beforeEach(() => {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vw-eth-store-'));
   process.env.VARA_WALLET_DIR = tmpDir;
+  __resetMigrationFlagForTests();
 });
 
 afterEach(() => {
@@ -79,7 +81,7 @@ describe('ethexe wallet store', () => {
 
   it('migrateVaraWalletSuffix renames legacy <name>.json → <name>.vara.json', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
-    require('node:fs').mkdirSync(walletsDir, { recursive: true });
+    mkdirSync(walletsDir, { recursive: true });
     writeFileSync(path.join(walletsDir, 'legacy.json'), '{}');
     writeFileSync(path.join(walletsDir, 'newAlice.ethexe.json'), '{}');
     writeFileSync(path.join(walletsDir, 'newBob.vara.json'), '{}');
@@ -102,14 +104,14 @@ describe('ethexe wallet store', () => {
 
   it('loadEthexeWallet throws on a corrupt file', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
-    require('node:fs').mkdirSync(walletsDir, { recursive: true });
+    mkdirSync(walletsDir, { recursive: true });
     writeFileSync(path.join(walletsDir, 'broken.ethexe.json'), '{not json');
     expect(() => loadEthexeWallet('broken')).toThrow(/corrupted/i);
   });
 
   it('loadEthexeWallet throws on a non-V3 file', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
-    require('node:fs').mkdirSync(walletsDir, { recursive: true });
+    mkdirSync(walletsDir, { recursive: true });
     writeFileSync(path.join(walletsDir, 'wrong.ethexe.json'), JSON.stringify({ version: 1 }));
     expect(() => loadEthexeWallet('wrong')).toThrow(/not a V3 keystore/i);
   });

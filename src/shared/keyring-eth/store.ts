@@ -2,26 +2,21 @@
  * Ethexe wallet store — file layout `~/.vara-wallet/wallets/<name>.ethexe.json`.
  *
  * Mirrors the substrate wallet store at `services/wallet-store.ts` but writes
- * V3 (Ethereum) keystores instead of polkadot xsalsa20-poly1305 JSONs. Files
- * are chmod 0600 on creation (Section 3 security gate).
+ * V3 (Ethereum) keystores instead of polkadot xsalsa20-poly1305 JSONs.
+ * Persistence routes through `writeUserFile` so the wallets/ dir is chmod 0700
+ * and the keystore file is chmod 0600.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { getConfigDir } from '../../services/config';
 import { CliError } from '../../utils/errors';
+import { writeUserFile } from '../../utils/secure-file';
 import type { V3Keystore } from './keystore';
 
-const DEFAULT_ROOT = path.join(process.env.HOME ?? '~', '.vara-wallet');
-
-function getRootDir(): string {
-  return process.env.VARA_WALLET_DIR ?? DEFAULT_ROOT;
-}
-
 function getWalletsDir(): string {
-  const dir = path.join(getRootDir(), 'wallets');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return dir;
+  return path.join(getConfigDir(), 'wallets');
 }
 
 function sanitizeName(name: string): string {
@@ -36,27 +31,34 @@ function ethexeWalletPath(name: string): string {
 }
 
 /**
- * Persists a V3 keystore to disk. Throws if the file already exists; callers
- * must explicitly `removeEthexeWallet` first to overwrite.
- *
- * File is written with mode 0600 — readable/writable only by the owning user.
+ * Persists a V3 keystore to disk. Routes through `writeUserFile` so the
+ * `wallets/` parent is 0700 and the keystore file is 0600. Refuses to
+ * overwrite — delete the file out-of-band to replace.
  */
 export function saveEthexeWallet(name: string, keystore: V3Keystore): string {
   const filePath = ethexeWalletPath(name);
-  if (existsSync(filePath)) {
+  try {
+    statSync(filePath);
     throw new CliError(`Ethexe wallet "${name}" already exists at ${filePath}`, 'WALLET_EXISTS', { name, path: filePath });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  writeFileSync(filePath, JSON.stringify(keystore, null, 2) + '\n', { mode: 0o600 });
+  writeUserFile(filePath, JSON.stringify(keystore, null, 2) + '\n');
   return filePath;
 }
 
 /** Loads a V3 keystore from disk by wallet name. */
 export function loadEthexeWallet(name: string): V3Keystore {
   const filePath = ethexeWalletPath(name);
-  if (!existsSync(filePath)) {
-    throw new CliError(`Ethexe wallet "${name}" not found at ${filePath}`, 'WALLET_NOT_FOUND', { name, path: filePath });
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new CliError(`Ethexe wallet "${name}" not found at ${filePath}`, 'WALLET_NOT_FOUND', { name, path: filePath });
+    }
+    throw err;
   }
-  const raw = readFileSync(filePath, 'utf8');
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -71,45 +73,73 @@ export function loadEthexeWallet(name: string): V3Keystore {
 
 /** Lists every ethexe wallet name in `~/.vara-wallet/wallets/`. */
 export function listEthexeWallets(): string[] {
-  const dir = getWalletsDir();
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.ethexe.json'))
-    .map((f) => f.replace(/\.ethexe\.json$/, ''))
-    .sort();
+  try {
+    return readdirSync(getWalletsDir())
+      .filter((f) => f.endsWith('.ethexe.json'))
+      .map((f) => f.replace(/\.ethexe\.json$/, ''))
+      .sort();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
 }
 
 /** Returns true if an ethexe wallet exists with this name. */
 export function ethexeWalletExists(name: string): boolean {
-  return existsSync(ethexeWalletPath(name));
+  try {
+    statSync(ethexeWalletPath(name));
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
 }
+
+// Memoise within a single process — every ethexe:* command calls this on entry,
+// and after the first run there's nothing left to do. Avoids a per-call readdir.
+let migratedThisProcess = false;
 
 /**
  * One-time migration: renames pre-existing `<name>.json` to `<name>.vara.json`
  * so the chain suffix becomes explicit alongside `<name>.ethexe.json` files.
  *
- * Called from `wallet list` and the first ethexe command. Idempotent — safe to
- * call repeatedly; only renames files that lack a chain suffix.
- *
- * Returns the list of renames performed (empty if nothing to do).
+ * Returns the list of renames performed (empty if nothing to do or already
+ * migrated this process).
  */
 export function migrateVaraWalletSuffix(): Array<{ from: string; to: string }> {
+  if (migratedThisProcess) return [];
+  migratedThisProcess = true;
+
   const dir = getWalletsDir();
-  if (!existsSync(dir)) return [];
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+
   const renames: Array<{ from: string; to: string }> = [];
-  for (const file of readdirSync(dir)) {
-    // Files we shouldn't touch: already-suffixed (.vara.json / .ethexe.json),
-    // non-JSON, or hidden files.
+  for (const file of entries) {
     if (!file.endsWith('.json')) continue;
     if (file.endsWith('.vara.json') || file.endsWith('.ethexe.json')) continue;
     if (file.startsWith('.')) continue;
     const from = path.join(dir, file);
     const to = path.join(dir, file.replace(/\.json$/, '.vara.json'));
-    // If the target already exists (somehow), skip — don't overwrite.
-    if (existsSync(to)) continue;
-    const { renameSync } = require('node:fs') as typeof import('node:fs');
+    // Don't clobber a target that already exists from a partial earlier run.
+    try {
+      statSync(to);
+      continue;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
     renameSync(from, to);
     renames.push({ from, to });
   }
   return renames;
+}
+
+/** Test-only — reset the per-process migration flag between tests. */
+export function __resetMigrationFlagForTests(): void {
+  migratedThisProcess = false;
 }

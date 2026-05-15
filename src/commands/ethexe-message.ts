@@ -1,17 +1,8 @@
-/**
- * `ethexe:message send` / `ethexe:message reply`
- *
- * Phase 3a default path: injected transaction (zero-address recipient → any
- * validator). On-chain `Mirror.sendMessage` is selectable via `--via eth` for
- * advanced users.
- */
-
 import { Command } from 'commander';
-import type { Address, Hex } from 'viem';
 
-import { getEthexeApi } from '../services/ethexe/api';
+import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
 import { resolveEthexeSigner } from '../services/ethexe/account';
-import { CliError } from '../utils/errors';
+import { asAddress, asHex, parseOptionalBigInt } from '../utils/eth-types';
 import { output } from '../utils/output';
 
 interface SendOptions {
@@ -23,28 +14,7 @@ interface SendOptions {
   timeoutMs?: string;
 }
 
-interface ReplyOptions extends SendOptions {
-  // same shape — destination is the mirror, and the message id is positional
-}
-
-function parseValue(raw?: string): bigint | undefined {
-  if (!raw) return undefined;
-  return BigInt(raw);
-}
-
-function asHex(value: string, field: string): Hex {
-  if (!/^0x[0-9a-fA-F]*$/.test(value)) {
-    throw new CliError(`${field} must be a 0x-prefixed hex string`, 'INVALID_HEX', { field, value });
-  }
-  return value as Hex;
-}
-
-function asAddress(value: string, field: string): Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new CliError(`${field} must be a 20-byte 0x-prefixed address`, 'INVALID_ADDRESS', { field, value });
-  }
-  return value as Address;
-}
+type ReplyOptions = SendOptions;
 
 export function registerEthexeMessageCommand(program: Command): void {
   const message = program.command('ethexe:message').description('Send messages and replies on the ethexe rail');
@@ -61,7 +31,7 @@ export function registerEthexeMessageCommand(program: Command): void {
     .action(async (mirrorArg: string, options: SendOptions) => {
       const mirror = asAddress(mirrorArg, 'mirror');
       const payload = asHex(options.payload, '--payload');
-      const value = parseValue(options.value);
+      const value = parseOptionalBigInt(options.value, '--value');
       const via: 'eth' | 'injected' = options.via === 'eth' ? 'eth' : 'injected';
 
       const api = await getEthexeApi();
@@ -101,7 +71,7 @@ export function registerEthexeMessageCommand(program: Command): void {
       const mirror = asAddress(mirrorArg, 'mirror');
       const messageId = asHex(msgIdArg, 'messageId');
       const payload = asHex(options.payload, '--payload');
-      const value = parseValue(options.value);
+      const value = parseOptionalBigInt(options.value, '--value');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
@@ -110,11 +80,7 @@ export function registerEthexeMessageCommand(program: Command): void {
       });
       api.eth.setSigner(signer);
 
-      const mirrorClient = (await import('@vara-eth/api')).getMirrorClient({
-        address: mirror,
-        publicClient: api.eth.publicClient,
-        signer,
-      });
+      const mirrorClient = await getMirrorClient(mirror, signer);
       const tx = await mirrorClient.sendReply(messageId, payload, value);
       const receipt = await tx.getReceipt();
 

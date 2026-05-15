@@ -16,12 +16,6 @@ import {
   TEST_SCRYPT_PARAMS,
 } from '../shared/keyring-eth';
 
-const KNOWN_KEY = new Uint8Array([
-  0xac, 0x09, 0x74, 0xbe, 0xc3, 0x9a, 0x17, 0xe3, 0x6b, 0xa4, 0xa6, 0xb4, 0xd2, 0x38, 0xff, 0x94,
-  0xba, 0xcb, 0x47, 0x8c, 0xbe, 0xd5, 0xef, 0xca, 0xe7, 0x84, 0xd7, 0xbf, 0x4f, 0x2f, 0xf8, 0x0a, // Anvil #0
-]); // Wait — the actual Anvil #0 is 0x...f80, so last byte should be 0x80 not 0x0a. Reconstructed below.
-
-// Reconstruct the *real* Anvil #0 key (the inline literal above had a bug — keep this for clarity)
 const ANVIL_0_KEY_HEX = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const ANVIL_0_ADDR = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
 function hexToBytes(hex: string): Uint8Array {
@@ -46,7 +40,7 @@ describe('encryptKeystore / decryptKeystore', () => {
 
   it('derives the correct EIP-55-lowercase address from Anvil #0', async () => {
     const key = hexToBytes(ANVIL_0_KEY_HEX);
-    const derived = await deriveAddressFromPrivateKey(key);
+    const derived = deriveAddressFromPrivateKey(key);
     expect(derived.toLowerCase()).toBe(ANVIL_0_ADDR);
   });
 
@@ -73,11 +67,6 @@ describe('encryptKeystore / decryptKeystore', () => {
     expect(ks.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  // Reference to silence "KNOWN_KEY unused" — kept for byte-layout illustration
-  // alongside ANVIL_0_KEY_HEX.
-  it('the inline KNOWN_KEY constant is 32 bytes (sanity check on the test file itself)', () => {
-    expect(KNOWN_KEY.length).toBe(32);
-  });
 });
 
 describe('BIP39 + BIP32 HD derivation', () => {

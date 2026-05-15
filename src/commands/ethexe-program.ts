@@ -1,17 +1,14 @@
 /**
- * `ethexe:program upload`, `ethexe:program deploy`, `ethexe:program top-up`
- *
- * Phase 3b commands — wired against `api.programs.deploy` for the combined
- * upload+deploy flow.
+ * `ethexe:program deploy` — upload WASM and create a program.
+ * `ethexe:program top-up`  — top up a program's executable balance.
  */
 
 import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
-import type { Address, Hex } from 'viem';
 
-import { getEthexeApi } from '../services/ethexe/api';
+import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
 import { resolveEthexeSigner } from '../services/ethexe/account';
-import { CliError } from '../utils/errors';
+import { asAddress, asHex } from '../utils/eth-types';
 import { output } from '../utils/output';
 
 interface DeployOptions {
@@ -20,20 +17,6 @@ interface DeployOptions {
   abiInterface?: string;
   account?: string;
   passphrase?: string;
-}
-
-function asAddress(value: string, field: string): Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new CliError(`${field} must be a 20-byte 0x-prefixed address`, 'INVALID_ADDRESS', { field, value });
-  }
-  return value as Address;
-}
-
-function asHex(value: string, field: string): Hex {
-  if (!/^0x[0-9a-fA-F]*$/.test(value)) {
-    throw new CliError(`${field} must be a 0x-prefixed hex string`, 'INVALID_HEX', { field, value });
-  }
-  return value as Hex;
 }
 
 export function registerEthexeProgramCommand(program: Command): void {
@@ -84,11 +67,7 @@ export function registerEthexeProgramCommand(program: Command): void {
       const signer = await resolveEthexeSigner(api.eth.publicClient, options);
       api.eth.setSigner(signer);
 
-      const mirrorClient = (await import('@vara-eth/api')).getMirrorClient({
-        address: mirror,
-        publicClient: api.eth.publicClient,
-        signer,
-      });
+      const mirrorClient = await getMirrorClient(mirror, signer);
       const tx = await mirrorClient.executableBalanceTopUp(amount);
       const receipt = await tx.getReceipt();
 

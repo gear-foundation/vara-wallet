@@ -90,15 +90,13 @@ program
     }
   });
 
-// Register commands — Phase 1
+// Substrate / Vara commands
 registerInitCommand(program);
 registerWalletCommand(program);
 registerBalanceCommand(program);
 registerNodeCommand(program);
 registerFaucetCommand(program);
 registerConfigCommand(program);
-
-// Register commands — Phase 2
 registerMessageCommand(program);
 registerMailboxCommand(program);
 registerProgramCommand(program);
@@ -106,8 +104,6 @@ registerCodeCommand(program);
 registerStateCommand(program);
 registerWaitCommand(program);
 registerWatchCommand(program);
-
-// Register commands — Phase 3
 registerDiscoverCommand(program);
 registerCallCommand(program);
 registerIdlCommand(program);
@@ -117,19 +113,12 @@ registerVoucherCommand(program);
 registerEncodeCommand(program);
 registerSignCommand(program);
 registerTxCommand(program);
-
-// Register commands — Phase 4: Subscriptions & Event Store
 registerSubscribeCommand(program);
 registerInboxCommand(program);
 registerEventsCommand(program);
-
-// Register commands — Phase 5: DEX
 registerDexCommand(program);
 
-// Register commands — Phase 6: ethexe rail (Vara.eth co-processor on Ethereum).
-// These live alongside the substrate equivalents instead of replacing them.
-// Each ethexe command name is prefixed with `ethexe:` (e.g. `ethexe:wallet create`)
-// so they don't clash with the existing substrate-only command tree.
+// Ethexe (Vara.eth co-processor) commands — prefixed `ethexe:`.
 registerEthexeWalletCommand(program);
 registerEthexeMessageCommand(program);
 registerEthexeStateCommand(program);
@@ -138,11 +127,8 @@ registerEthexeMailboxCommand(program);
 registerEthexeSubscribeCommand(program);
 registerEthexeStubCommands(program);
 
-// Graceful shutdown (moved from api.ts so subscribe/keepAlive can override).
-// Subscribe commands don't go through main()'s finally: they await
-// keepAlive(...) which only resolves on signal/timeout, and keepAlive's
-// own cleanup runs disconnectApi() before the action returns. By the
-// time main() reaches finally, the WS is already torn down by them.
+// Subscribe commands register their own signal handler with `prependOnceListener`
+// so it runs before this catch-all and tears down the subscription cleanly.
 process.on('SIGINT', () => {
   disconnectApi();
   disconnectEthexeApi();

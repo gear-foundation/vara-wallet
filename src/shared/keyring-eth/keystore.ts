@@ -8,11 +8,14 @@
  * `@noble/ciphers` (AES-CTR). No native deps, no wasm at runtime.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { ctr } from '@noble/ciphers/aes';
-import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3.js';
 import { scryptAsync } from '@noble/hashes/scrypt';
 import { randomBytes as nobleRandomBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes, type Hex } from 'viem';
+import { privateKeyToAddress } from 'viem/accounts';
 
 export interface V3Keystore {
   version: 3;
@@ -40,33 +43,14 @@ export const DEFAULT_SCRYPT_PARAMS = { n: 131072, r: 8, p: 1, dklen: 32 } as con
 /** Fast scrypt parameters for unit tests / CI. NEVER use these for real wallets. */
 export const TEST_SCRYPT_PARAMS = { n: 1024, r: 8, p: 1, dklen: 32 } as const;
 
-function toHex(bytes: Uint8Array): string {
-  let hex = '';
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
-  return hex;
+/** V3 keystore hex fields are stored unprefixed. viem's `bytesToHex` prefixes — strip. */
+function toUnprefixedHex(bytes: Uint8Array): string {
+  return bytesToHex(bytes).slice(2);
 }
 
-function fromHex(hex: string): Uint8Array {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length % 2 !== 0) throw new Error('odd-length hex string');
-  const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
-  return out;
-}
-
-function makeUuidV4(): string {
-  const b = nobleRandomBytes(16);
-  b[6] = (b[6] & 0x0f) | 0x40;
-  b[8] = (b[8] & 0x3f) | 0x80;
-  const h = toHex(b);
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
-function addressFromPrivateKey(privateKey: Uint8Array): string {
-  // 65-byte uncompressed pubkey (0x04 ‖ x ‖ y). Drop the prefix before hashing.
-  const uncompressed = secp256k1.getPublicKey(privateKey, false);
-  const hash = keccak_256(uncompressed.slice(1));
-  return `0x${toHex(hash.slice(12))}`;
+/** Accepts both prefixed and unprefixed hex strings. */
+function fromAnyHex(hex: string): Uint8Array {
+  return hexToBytes((hex.startsWith('0x') ? hex : `0x${hex}`) as Hex);
 }
 
 /**
@@ -82,10 +66,11 @@ export async function encryptKeystore(
   passphrase: string,
   options?: {
     scryptParams?: { n: number; r: number; p: number; dklen: 32 };
-    address?: string; // skip pubkey derivation if known (e.g. from HD path)
+    /** Skip pubkey derivation if the address is already known (e.g. from HD path). */
+    address?: string;
   },
 ): Promise<V3Keystore> {
-  const pkBytes = typeof privateKey === 'string' ? fromHex(privateKey) : privateKey;
+  const pkBytes = typeof privateKey === 'string' ? fromAnyHex(privateKey) : privateKey;
   if (pkBytes.length !== 32) throw new Error('private key must be 32 bytes');
 
   const params = options?.scryptParams ?? DEFAULT_SCRYPT_PARAMS;
@@ -105,20 +90,20 @@ export async function encryptKeystore(
   const ciphertext = ctr(aesKey, iv).encrypt(pkBytes);
   const mac = keccak_256(new Uint8Array([...macSeed, ...ciphertext]));
 
-  let address = options?.address ?? addressFromPrivateKey(pkBytes);
+  let address = options?.address ?? privateKeyToAddress(bytesToHex(pkBytes));
   if (address.startsWith('0x')) address = address.slice(2);
 
   return {
     version: 3,
-    id: makeUuidV4(),
+    id: randomUUID(),
     address: address.toLowerCase(),
     crypto: {
       cipher: 'aes-128-ctr',
-      ciphertext: toHex(ciphertext),
-      cipherparams: { iv: toHex(iv) },
+      ciphertext: toUnprefixedHex(ciphertext),
+      cipherparams: { iv: toUnprefixedHex(iv) },
       kdf: 'scrypt',
-      kdfparams: { ...params, salt: toHex(salt) },
-      mac: toHex(mac),
+      kdfparams: { ...params, salt: toUnprefixedHex(salt) },
+      mac: toUnprefixedHex(mac),
     },
   };
 }
@@ -138,9 +123,9 @@ export async function decryptKeystore(keystore: V3Keystore, passphrase: string):
   if (keystore.crypto.kdf !== 'scrypt') throw new Error(`unsupported kdf: ${keystore.crypto.kdf}`);
 
   const params = keystore.crypto.kdfparams;
-  const salt = fromHex(params.salt);
-  const iv = fromHex(keystore.crypto.cipherparams.iv);
-  const ciphertext = fromHex(keystore.crypto.ciphertext);
+  const salt = fromAnyHex(params.salt);
+  const iv = fromAnyHex(keystore.crypto.cipherparams.iv);
+  const ciphertext = fromAnyHex(keystore.crypto.ciphertext);
 
   const dk = await scryptAsync(new TextEncoder().encode(passphrase), salt, {
     N: params.n,
@@ -152,21 +137,14 @@ export async function decryptKeystore(keystore: V3Keystore, passphrase: string):
   const macSeed = dk.slice(16, 32);
 
   const expectedMac = keccak_256(new Uint8Array([...macSeed, ...ciphertext]));
-  if (toHex(expectedMac) !== keystore.crypto.mac.toLowerCase()) {
+  if (toUnprefixedHex(expectedMac) !== keystore.crypto.mac.toLowerCase()) {
     throw new Error('MAC mismatch (wrong passphrase or corrupt file)');
   }
 
   return ctr(aesKey, iv).decrypt(ciphertext);
 }
 
-/**
- * Computes the lowercase 0x-hex address for a raw secp256k1 private key.
- * Used after import to populate the `address` field of a fresh keystore.
- *
- * Despite the async signature, this is now a synchronous derivation under the
- * hood — keeping the Promise return type means callers don't have to be
- * rewritten if/when we add a more expensive path here (e.g. EIP-55 checksum).
- */
-export async function deriveAddressFromPrivateKey(privateKey: Uint8Array): Promise<string> {
-  return addressFromPrivateKey(privateKey);
+/** Lowercase 0x-hex Ethereum address for a raw secp256k1 private key. */
+export function deriveAddressFromPrivateKey(privateKey: Uint8Array): string {
+  return privateKeyToAddress(bytesToHex(privateKey)).toLowerCase();
 }

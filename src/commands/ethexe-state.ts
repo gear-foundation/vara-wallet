@@ -1,31 +1,14 @@
-/**
- * `ethexe:state read <mirror>` — fetch the on-coprocessor program state.
- *
- * Surfaces three useful views:
- *   --full           full state (queue/waitlist/stash/mailbox/pages)
- *   --queue          just the message queue
- *   --mailbox        just the mailbox
- *   (default)        ProgramState only (state hash, queue size, balances, expiry)
- */
-
 import { Command } from 'commander';
-import type { Address, Hex } from 'viem';
+import type { Hex } from 'viem';
 
-import { getEthexeApi } from '../services/ethexe/api';
-import { CliError } from '../utils/errors';
+import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
+import { asAddress } from '../utils/eth-types';
 import { output } from '../utils/output';
 
 interface ReadOptions {
   full?: boolean;
   queue?: boolean;
   mailbox?: boolean;
-}
-
-function asAddress(value: string, field: string): Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new CliError(`${field} must be a 20-byte 0x-prefixed address`, 'INVALID_ADDRESS', { field, value });
-  }
-  return value as Address;
 }
 
 export function registerEthexeStateCommand(program: Command): void {
@@ -40,11 +23,7 @@ export function registerEthexeStateCommand(program: Command): void {
     .action(async (mirrorArg: string, options: ReadOptions) => {
       const mirror = asAddress(mirrorArg, 'mirror');
       const api = await getEthexeApi();
-
-      const mirrorClient = (await import('@vara-eth/api')).getMirrorClient({
-        address: mirror,
-        publicClient: api.eth.publicClient,
-      });
+      const mirrorClient = await getMirrorClient(mirror);
       const stateHash = (await mirrorClient.stateHash()) as Hex;
 
       if (options.full) {

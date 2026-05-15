@@ -7,8 +7,15 @@
  */
 
 import { createPublicClient, webSocket, type Address, type PublicClient } from 'viem';
-import { createVaraEthApi, HttpVaraEthProvider, WsVaraEthProvider } from '@vara-eth/api';
-import type { VaraEthApi } from '@vara-eth/api';
+import {
+  createVaraEthApi,
+  HttpVaraEthProvider,
+  WsVaraEthProvider,
+  getMirrorClient as makeMirrorClient,
+  type ITransactionSigner,
+  type MirrorClient,
+  type VaraEthApi,
+} from '@vara-eth/api';
 
 import { CliError } from '../../utils/errors';
 import { readConfig } from '../config';
@@ -39,17 +46,15 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
   routerAddress: Address;
 } {
   const config = readConfig();
-  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? (config as { varaEthRpc?: string }).varaEthRpc;
-  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? (config as { ethereumRpc?: string }).ethereumRpc;
-  const routerAddress = (options.routerAddress ??
-    (process.env.VARA_ETH_ROUTER as Address | undefined) ??
-    ((config as { routerAddress?: Address }).routerAddress)) as Address | undefined;
+  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc;
+  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc;
+  const routerAddress = options.routerAddress ?? (process.env.VARA_ETH_ROUTER as Address | undefined) ?? config.routerAddress;
 
-  const missing: string[] = [];
-  if (!varaEthRpc) missing.push('varaEthRpc (env: VARA_ETH_RPC)');
-  if (!ethereumRpc) missing.push('ethereumRpc (env: ETHEREUM_RPC)');
-  if (!routerAddress) missing.push('routerAddress (env: VARA_ETH_ROUTER)');
-  if (missing.length > 0) {
+  if (!varaEthRpc || !ethereumRpc || !routerAddress) {
+    const missing: string[] = [];
+    if (!varaEthRpc) missing.push('varaEthRpc (env: VARA_ETH_RPC)');
+    if (!ethereumRpc) missing.push('ethereumRpc (env: ETHEREUM_RPC)');
+    if (!routerAddress) missing.push('routerAddress (env: VARA_ETH_ROUTER)');
     throw new CliError(
       `Ethexe is not configured. Missing: ${missing.join(', ')}. Set via env vars or "vara-wallet config set …".`,
       'MISSING_ETHEXE_CONFIG',
@@ -57,15 +62,13 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
     );
   }
 
-  return { varaEthRpc: varaEthRpc!, ethereumRpc: ethereumRpc!, routerAddress: routerAddress! };
+  return { varaEthRpc, ethereumRpc, routerAddress };
 }
 
 /**
- * Returns a cached `VaraEthApi` for the current process.
- *
- * Reuses the same instance across commands within the same CLI invocation;
- * a second call with conflicting options throws (caller's bug — split into
- * separate processes if you really need two endpoints).
+ * Returns a cached `VaraEthApi` for the current process. Within one CLI
+ * invocation every caller shares the same instance; on the second call the
+ * supplied options are ignored — only the first call's resolution wins.
  */
 export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<VaraEthApi> {
   if (cached) return cached.api;
@@ -81,6 +84,16 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
 
   cached = { api, ws, publicClient };
   return api;
+}
+
+/**
+ * Builds a `MirrorClient` for the given program address, reusing the cached
+ * `publicClient` from {@link getEthexeApi}. Optional `signer` switches the
+ * client into write mode.
+ */
+export async function getMirrorClient(address: Address, signer?: ITransactionSigner): Promise<MirrorClient> {
+  const api = await getEthexeApi();
+  return makeMirrorClient({ address, publicClient: api.eth.publicClient, signer });
 }
 
 /** Tears down the cached ethexe connections. Safe to call when nothing is open. */

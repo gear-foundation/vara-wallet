@@ -1,40 +1,23 @@
-/**
- * `ethexe:subscribe program <mirror>` / `ethexe:subscribe router` /
- * `ethexe:subscribe blocks` — emit ethexe events as NDJSON to stdout until
- * cancelled.
- */
-
 import { Command } from 'commander';
-import type { Address } from 'viem';
 
 import { getEthexeApi } from '../services/ethexe/api';
-import { CliError } from '../utils/errors';
+import { asAddress, parseOptionalBigInt } from '../utils/eth-types';
 import { outputNdjson, verbose } from '../utils/output';
 
-function asAddress(value: string, field: string): Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new CliError(`${field} must be a 20-byte 0x-prefixed address`, 'INVALID_ADDRESS', { field, value });
-  }
-  return value as Address;
-}
-
-function parseBigInt(raw?: string, field?: string): bigint | undefined {
-  if (raw === undefined) return undefined;
-  try {
-    return BigInt(raw);
-  } catch {
-    throw new CliError(`${field ?? 'value'} must be an integer`, 'INVALID_BIGINT', { value: raw });
-  }
-}
-
 /**
- * Run until ctrl-c. Subscribe commands return a never-resolving Promise so the
- * shutdown hooks in app.ts wait for SIGINT before tearing down.
+ * Holds the process open until the user sends SIGINT/SIGTERM and tears down
+ * the subscription before yielding. We register a `once` listener with
+ * `prependListener` so it runs *before* the global SIGINT handler in `app.ts`
+ * (which calls `fastExit` and skips our `finally` block).
  */
-function keepAliveForever(): Promise<void> {
+function awaitSignalAnd(unsubscribe: () => void): Promise<void> {
   return new Promise<void>((resolve) => {
-    process.on('SIGINT', () => resolve());
-    process.on('SIGTERM', () => resolve());
+    const onSignal = () => {
+      unsubscribe();
+      resolve();
+    };
+    process.prependOnceListener('SIGINT', onSignal);
+    process.prependOnceListener('SIGTERM', onSignal);
   });
 }
 
@@ -47,7 +30,7 @@ export function registerEthexeSubscribeCommand(program: Command): void {
     .option('--from-block <n>', 'back-fill from this block number')
     .action(async (mirrorArg: string, options: { fromBlock?: string }) => {
       const mirror = asAddress(mirrorArg, 'mirror');
-      const fromBlock = parseBigInt(options.fromBlock, '--from-block');
+      const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
 
       const api = await getEthexeApi();
       verbose(`subscribing to program events ${mirror}`);
@@ -59,11 +42,7 @@ export function registerEthexeSubscribeCommand(program: Command): void {
         },
         { fromBlock },
       );
-      try {
-        await keepAliveForever();
-      } finally {
-        unsubscribe();
-      }
+      await awaitSignalAnd(unsubscribe);
     });
 
   cmd
@@ -71,7 +50,7 @@ export function registerEthexeSubscribeCommand(program: Command): void {
     .description('Stream all events emitted by the Router')
     .option('--from-block <n>', 'back-fill from this block number')
     .action(async (options: { fromBlock?: string }) => {
-      const fromBlock = parseBigInt(options.fromBlock, '--from-block');
+      const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
       const api = await getEthexeApi();
       verbose('subscribing to router events');
       const unsubscribe = api.stream.routerEvents(
@@ -81,11 +60,7 @@ export function registerEthexeSubscribeCommand(program: Command): void {
         },
         { fromBlock },
       );
-      try {
-        await keepAliveForever();
-      } finally {
-        unsubscribe();
-      }
+      await awaitSignalAnd(unsubscribe);
     });
 
   cmd
@@ -102,10 +77,6 @@ export function registerEthexeSubscribeCommand(program: Command): void {
         },
         { includePending: options.includePending },
       );
-      try {
-        await keepAliveForever();
-      } finally {
-        unsubscribe();
-      }
+      await awaitSignalAnd(unsubscribe);
     });
 }

@@ -1,15 +1,5 @@
-/**
- * `ethexe:wallet *` — manage V3 (Ethereum) keystores under `~/.vara-wallet/wallets/*.ethexe.json`.
- *
- * Commands:
- *   ethexe:wallet create <name>           — generate a new mnemonic + keystore
- *   ethexe:wallet import <name>           — import from --mnemonic / --private-key
- *   ethexe:wallet list                    — list ethexe wallets
- *   ethexe:wallet show <name>             — show address + keystore metadata (no secrets)
- *   ethexe:wallet keys <name>             — decrypt + print raw private key (DANGEROUS)
- */
-
 import { Command } from 'commander';
+import { bytesToHex, hexToBytes } from 'viem';
 
 import {
   DEFAULT_ETH_HD_PATH,
@@ -50,12 +40,11 @@ function requirePassphrase(opts: { passphrase?: string }): string {
   return passphrase;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length !== 64) throw new CliError('Private key must be 32 bytes (64 hex chars)', 'INVALID_PRIVATE_KEY');
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
-  return out;
+function privateKeyHexToBytes(hex: string): Uint8Array {
+  const prefixed = hex.startsWith('0x') ? hex : `0x${hex}`;
+  const bytes = hexToBytes(prefixed as `0x${string}`);
+  if (bytes.length !== 32) throw new CliError('Private key must be 32 bytes (64 hex chars)', 'INVALID_PRIVATE_KEY');
+  return bytes;
 }
 
 export function registerEthexeWalletCommand(program: Command): void {
@@ -76,7 +65,7 @@ export function registerEthexeWalletCommand(program: Command): void {
       const mnemonic = generateMnemonic();
       const path = options.path ?? DEFAULT_ETH_HD_PATH;
       const privateKey = deriveEthereumKey(mnemonic, path);
-      const address = await deriveAddressFromPrivateKey(privateKey);
+      const address = deriveAddressFromPrivateKey(privateKey);
       verbose(`Generated mnemonic at ${path} → ${address}`);
 
       const keystore = await encryptKeystore(privateKey, passphrase, { address });
@@ -121,10 +110,10 @@ export function registerEthexeWalletCommand(program: Command): void {
         hdPath = options.path ?? DEFAULT_ETH_HD_PATH;
         privateKey = deriveEthereumKey(options.mnemonic, hdPath);
       } else {
-        privateKey = hexToBytes(options.privateKey!);
+        privateKey = privateKeyHexToBytes(options.privateKey!);
       }
 
-      const address = await deriveAddressFromPrivateKey(privateKey);
+      const address = deriveAddressFromPrivateKey(privateKey);
       const keystore = await encryptKeystore(privateKey, passphrase, { address });
       const filePath = saveEthexeWallet(name, keystore);
 
@@ -181,7 +170,7 @@ export function registerEthexeWalletCommand(program: Command): void {
       output({
         name,
         address: `0x${ks.address}`,
-        privateKey: '0x' + Buffer.from(privateKey).toString('hex'),
+        privateKey: bytesToHex(privateKey),
         warning: 'Treat this value as a credential — anyone with it can spend your funds.',
       });
     });

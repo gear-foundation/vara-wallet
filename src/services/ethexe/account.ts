@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { PublicClient } from 'viem';
+import { bytesToHex, type PublicClient } from 'viem';
 import { LocalSigner, type ITransactionSigner } from '@vara-eth/api';
 
 import { decryptKeystore } from '../../shared/keyring-eth/keystore';
@@ -68,12 +68,10 @@ export async function resolveEthexeSigner(
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     if (message.includes('MAC mismatch')) {
-      throw new WrongPassphraseError(walletName, 0);
+      throw new WrongPassphraseError(walletName);
     }
     throw new KeystoreDecryptError(walletName, message);
   }
 
-  // Convert private key bytes → 0x-hex string for the LocalSigner.
-  const pkHex = `0x${Buffer.from(privateKey).toString('hex')}` as `0x${string}`;
-  return new LocalSigner(pkHex, publicClient);
+  return new LocalSigner(bytesToHex(privateKey), publicClient);
 }
