@@ -344,6 +344,32 @@ For program-execution failures (panic during call/estimate, contract revert), th
 
 `reason` is one of: `panic` (Result::unwrap on Err, including Sails error variants), `unreachable` (gear runtime trap, includes "destination is not a program" cases), `inactive` (program terminated), `not_found` (no program at destination, gear-node spec varies). `programMessage` is the contract-level error variant name for `panic` cases.
 
+For transport-layer failures (network never reached the program), the same `reason`-subcode pattern applies under `TRANSPORT_ERROR`:
+
+```json
+{
+  "error": "Cannot resolve host nonexistent.example",
+  "code": "TRANSPORT_ERROR",
+  "reason": "dns_failure",
+  "endpoint": "wss://nonexistent.example",
+  "host": "nonexistent.example",
+  "cause": "getaddrinfo ENOTFOUND nonexistent.example"
+}
+```
+
+All `TRANSPORT_ERROR` fields (`reason`, `endpoint`, `host`, `cause`) sit at the top level of the emitted JSON — `formatError` (`src/utils/errors.ts`) spreads `CliError.meta` into the output, so consumers read `.reason` / `.endpoint`, never `.meta.reason`.
+
+`reason` is one of: `dns_failure` (ENOTFOUND / EAI_AGAIN), `connection_refused` (ECONNREFUSED), `timeout` (connect or roundtrip), `ws_close_abnormal` (WS close codes 1006/1011/1012/1013), `protocol_mismatch` (HTTP 400/426 / "Unexpected response"), `unreachable` (EHOSTUNREACH / ENETUNREACH), `tls_failure` (cert / SNI / verify failures), `unknown` (preserves `cause`). `endpoint` is always present; `host` is present on DNS failures. Switch on `reason` to distinguish transient from permanent — and match the wallet's own auto-retry (see [#64]) on the same set:
+
+```bash
+ERR=$(... 2>&1 1>/dev/null)
+case "$(echo "$ERR" | jq -r '.reason // ""')" in
+  timeout|ws_close_abnormal)                                                retry_with_backoff ;;
+  dns_failure|tls_failure|protocol_mismatch|connection_refused|unreachable) swap_endpoint ;;
+  *)                                                                        escalate ;;
+esac
+```
+
 For agent loops, prefer:
 
 ```bash
@@ -369,7 +395,8 @@ over regex matching on `.error`.
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network may be congested |
 | `TX_FAILED` | On-chain failure | Check events in output for details |
 | `IDL_NOT_FOUND` | No Sails IDL available | If the error says the WASM has no `sails:idl` custom section, run `vara-wallet idl import <path.idl> --program <id>`. Otherwise pass `--idl <path>` for one-off use. |
-| `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read `meta.programMessage` for the contract-level cause. State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
+| `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read top-level `.programMessage` for the contract-level cause (Result::unwrap wrapper stripped). State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
+| `TRANSPORT_ERROR` | Network failure (DNS / WS handshake / RPC disconnect / TLS / timeout) | Switch on top-level `.reason`: `timeout` / `ws_close_abnormal` are transient (retry the same endpoint, matching the wallet's auto-retry); the rest (`dns_failure` / `tls_failure` / `protocol_mismatch` / `connection_refused` / `unreachable`) are permanent for the current endpoint (swap `--ws` / `--network`). `.endpoint` and `.host` (DNS) identify the target. |
 
 ## Addresses
 

@@ -446,8 +446,8 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `PAIR_NOT_FOUND` | Trading pair doesn't exist |
 | `TOKEN_MISMATCH` | Tokens don't match pair |
 | `INVALID_SLIPPAGE` | Slippage out of range (0-5000 bps) |
-| `CONNECTION_TIMEOUT` | WebSocket or light client connection timed out (10s) |
-| `CONNECTION_FAILED` | Network unreachable or request timed out |
+| `TRANSPORT_ERROR` | WS / RPC / light-client / chainspec-fetch failure. All fields sit at top level (no `meta` envelope): `.reason` (one of `dns_failure`, `connection_refused`, `timeout`, `ws_close_abnormal`, `protocol_mismatch`, `unreachable`, `tls_failure`, `unknown`), `.endpoint`, and either `.host` (DNS) or `.cause` (raw upstream message). Agents should switch on `.reason` to distinguish transient (`timeout`, `ws_close_abnormal` — match the wallet's own auto-retry) from permanent (`dns_failure`, `tls_failure`, `protocol_mismatch`, `connection_refused`, `unreachable`). |
+| `CONNECTION_FAILED` | Faucet HTTP request failure (the WS / RPC surface now uses `TRANSPORT_ERROR`). |
 | `WRONG_NETWORK` | Command not available on this network (e.g., faucet on mainnet) |
 | `INVALID_NETWORK` | Unknown `--network` value |
 | `INVALID_CONFIG_KEY` | Unknown config key passed to `config set/get` |
