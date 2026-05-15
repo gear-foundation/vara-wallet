@@ -145,6 +145,28 @@ describe('decodeSailsEvent — happy paths', () => {
     expect(decoded!.data).toBeNull();
   });
 
+  it('decodes a v2 event through SailsProgram.decodeEvent and normalizes nested u256', async () => {
+    const sails = await parseIdlFileV2(EVENTS_FIXTURE) as SailsProgram;
+    const svc = getServiceWire(sails, 'Walker');
+    const balanceIdx = (svc.events ?? []).findIndex((e) => e.name === 'BalanceChanged');
+    expect(balanceIdx).toBeGreaterThanOrEqual(0);
+    const entryId = svc.events![balanceIdx].entry_id ?? balanceIdx;
+    const header = buildHeader(svc.interface_id!, entryId, getRouteIdx(sails, 'Walker'));
+
+    const amount = new Uint8Array(32);
+    amount[0] = 42;
+    const fullPayload = concat(header, amount);
+
+    const ums = buildUserMessageSent(fullPayload, '0x' + '00'.repeat(32));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const decoded = decodeSailsEvent(sails, ums as any);
+    expect(decoded).toEqual({
+      service: 'Walker',
+      event: 'BalanceChanged',
+      data: { amount: '42' },
+    });
+  });
+
   it('decodes an event from an inherited service via extends (v2)', async () => {
     const sails = await parseIdlFileV2(EXTENDS_FIXTURE) as SailsProgram;
     const baseSvc = getServiceWire(sails, 'Base');

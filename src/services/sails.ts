@@ -1,5 +1,5 @@
 import { GearApi } from '@gear-js/api';
-import { Sails, SailsProgram, type SailsService, type Type, type TypeDecl, type TypeResolver } from 'sails-js';
+import { Sails, SailsProgram, type Type, type TypeDecl, type TypeResolver } from 'sails-js';
 import { SailsIdlParser as V1Parser } from 'sails-js-parser';
 import { SailsIdlParser as V2Parser } from 'sails-js/parser';
 import type { Option, Bytes } from '@polkadot/types';
@@ -546,72 +546,31 @@ export function getSailsVersion(sails: LoadedSails): 'v1' | 'v2' {
   return isSailsV2(sails) ? 'v2' : 'v1';
 }
 
-/**
- * Per-instance cache of resolved type maps keyed by service scope.
- * Scoping matters for v2 because same-name types in different services
- * would otherwise collide in a flat global map.
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const registryTypesCache = new WeakMap<LoadedSails, Map<string, Map<string, any>>>();
+const registryTypesCache = new WeakMap<Sails, Map<string, any>>();
 
 /**
- * Get the type-name → user-defined-type map for a loaded Sails instance.
+ * Get the v1 type-name → user-defined-type map for a loaded Sails instance.
  *
- * - v1: reads `sails._program.types` (global flat map; v1 has no service
- *   type scoping). The `serviceName` arg is ignored for v1.
- * - v2: uses beta.2's public `programTypes`, `service.types`, and
- *   `service.extends` accessors. When `serviceName` is provided, the result
- *   includes that service's transitive service-type scope. When omitted, all
- *   program and service types are flattened (caller accepts collision risk).
+ * v2 callers should use beta.2 `TypeResolver` APIs directly, since
+ * service-local type scopes and generics are first-class there. This helper
+ * intentionally remains v1-only.
  *
- * Results are cached per (instance, scope) pair via a WeakMap so subsequent
- * calls are O(1).
- *
- * Returns an empty map if the IDL has no user-defined types.
+ * Returns an empty map if the v1 IDL has no user-defined types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getRegistryTypes(sails: LoadedSails, serviceName?: string): Map<string, any> {
-  const cacheKey = serviceName ?? '__all__';
-  let scopedCache = registryTypesCache.get(sails);
-  if (!scopedCache) {
-    scopedCache = new Map();
-    registryTypesCache.set(sails, scopedCache);
-  }
-  const cached = scopedCache.get(cacheKey);
+export function getRegistryTypes(sails: Sails): Map<string, any> {
+  const cached = registryTypesCache.get(sails);
   if (cached) return cached;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const map = new Map<string, any>();
-  if (isSailsV2(sails)) {
-    if (serviceName) {
-      const service = sails.services[serviceName];
-      if (service) collectServiceTypes(service, map);
-    } else {
-      for (const t of sails.programTypes.values()) map.set(t.name, t);
-      for (const service of Object.values(sails.services)) collectServiceTypes(service, map);
-    }
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const types = (sails as any)._program?.types as Array<{ name: string; def: unknown }> | undefined;
-    if (types) {
-      for (const t of types) map.set(t.name, t.def);
-    }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const types = (sails as any)._program?.types as Array<{ name: string; def: unknown }> | undefined;
+  if (types) {
+    for (const t of types) map.set(t.name, t.def);
   }
-  scopedCache.set(cacheKey, map);
+  registryTypesCache.set(sails, map);
   return map;
-}
-
-function collectServiceTypes(
-  service: SailsService,
-  map: Map<string, Type>,
-  visited = new WeakSet<object>(),
-): void {
-  if (visited.has(service)) return;
-  visited.add(service);
-  for (const t of service.types.values()) map.set(t.name, t);
-  for (const extended of Object.values(service.extends)) {
-    collectServiceTypes(extended, map, visited);
-  }
 }
 
 export function getV2TypeResolver(sails: SailsProgram, serviceName?: string): TypeResolver {
@@ -628,10 +587,7 @@ export function resolveV2UserType(
   serviceName?: string,
 ): Type | undefined {
   if (serviceName) {
-    const service = sails.services[serviceName];
-    const serviceResolved = service?.typeResolver.resolveNamed(typeDecl);
-    if (serviceResolved) return serviceResolved;
-    return sails.resolveInService(serviceName, typeDecl);
+    return sails.services[serviceName]?.typeResolver.resolveNamed(typeDecl);
   }
   return sails.typeResolver.resolveNamed(typeDecl);
 }

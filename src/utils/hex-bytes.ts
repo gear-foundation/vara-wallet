@@ -279,15 +279,9 @@ type V2TypeDecl =
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type V2Type = any; // struct | enum | alias — loose to avoid deep type churn
 
-type V2TypeMap = Map<string, V2Type>;
-type V2TypeLookup = V2TypeMap | TypeResolver;
-
-function resolveV2UserType(typeDecl: V2TypeDecl, typeLookup: V2TypeLookup): V2Type | undefined {
+function resolveV2UserType(typeDecl: V2TypeDecl, typeResolver: TypeResolver): V2Type | undefined {
   if (typeof typeDecl === 'string' || typeDecl.kind !== 'named') return undefined;
-  if ('resolveNamed' in typeLookup) {
-    return typeLookup.resolveNamed(typeDecl as TypeDecl);
-  }
-  return typeLookup.get(typeDecl.name);
+  return typeResolver.resolveNamed(typeDecl as TypeDecl);
 }
 
 function isV2PrimitiveU8(typeDecl: V2TypeDecl): boolean {
@@ -316,7 +310,7 @@ function isV2ArrayU8(typeDecl: V2TypeDecl): FixedU8ArrayMatch {
 export function coerceHexToBytesV2(
   value: unknown,
   typeDecl: V2TypeDecl,
-  typeLookup: V2TypeLookup,
+  typeResolver: TypeResolver,
   fieldHint?: string,
 ): unknown {
   if (value === null || value === undefined) return value;
@@ -340,7 +334,7 @@ export function coerceHexToBytesV2(
   // Slice (non-u8): recurse elements
   if (typeDecl.kind === 'slice') {
     if (Array.isArray(value)) {
-      return value.map((item) => coerceHexToBytesV2(item, typeDecl.item, typeLookup, fieldHint));
+      return value.map((item) => coerceHexToBytesV2(item, typeDecl.item, typeResolver, fieldHint));
     }
     return value;
   }
@@ -348,7 +342,7 @@ export function coerceHexToBytesV2(
   // Array (non-u8): recurse elements
   if (typeDecl.kind === 'array') {
     if (Array.isArray(value)) {
-      return value.map((item) => coerceHexToBytesV2(item, typeDecl.item, typeLookup, fieldHint));
+      return value.map((item) => coerceHexToBytesV2(item, typeDecl.item, typeResolver, fieldHint));
     }
     return value;
   }
@@ -356,7 +350,7 @@ export function coerceHexToBytesV2(
   // Tuple: recurse by index
   if (typeDecl.kind === 'tuple') {
     if (Array.isArray(value)) {
-      return typeDecl.types.map((t, i) => coerceHexToBytesV2((value as unknown[])[i], t, typeLookup, fieldHint));
+      return typeDecl.types.map((t, i) => coerceHexToBytesV2((value as unknown[])[i], t, typeResolver, fieldHint));
     }
     return value;
   }
@@ -371,12 +365,12 @@ export function coerceHexToBytesV2(
 
     // Well-known wrappers.
     if (name === 'Option' && generics && generics.length === 1) {
-      return coerceHexToBytesV2(value, generics[0], typeLookup, fieldHint);
+      return coerceHexToBytesV2(value, generics[0], typeResolver, fieldHint);
     }
     if (name === 'Result' && generics && generics.length === 2 && typeof value === 'object' && !Array.isArray(value)) {
       const obj = value as Record<string, unknown>;
-      if ('ok' in obj) return { ok: coerceHexToBytesV2(obj.ok, generics[0], typeLookup, 'ok') };
-      if ('err' in obj) return { err: coerceHexToBytesV2(obj.err, generics[1], typeLookup, 'err') };
+      if ('ok' in obj) return { ok: coerceHexToBytesV2(obj.ok, generics[0], typeResolver, 'ok') };
+      if ('err' in obj) return { err: coerceHexToBytesV2(obj.err, generics[1], typeResolver, 'err') };
       return value;
     }
     if (name === 'Vec' && generics && generics.length === 1) {
@@ -384,25 +378,25 @@ export function coerceHexToBytesV2(
       // Vec<u8> → bytes via hex coercion
       if (isV2PrimitiveU8(inner)) return tryHexToBytes(value, fieldHint);
       if (Array.isArray(value)) {
-        return value.map((item) => coerceHexToBytesV2(item, inner, typeLookup, fieldHint));
+        return value.map((item) => coerceHexToBytesV2(item, inner, typeResolver, fieldHint));
       }
       return value;
     }
     if ((name === 'Map' || name === 'BTreeMap' || name === 'HashMap') && generics && generics.length === 2 && typeof value === 'object' && !Array.isArray(value)) {
       const result: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        result[k] = coerceHexToBytesV2(v, generics[1], typeLookup, k);
+        result[k] = coerceHexToBytesV2(v, generics[1], typeResolver, k);
       }
       return result;
     }
 
-    // User-defined type: look up in type resolver/map and recurse.
-    const userType = resolveV2UserType(typeDecl, typeLookup);
+    // User-defined type: look up in the scoped beta.2 resolver and recurse.
+    const userType = resolveV2UserType(typeDecl, typeResolver);
     if (!userType) return value; // Unknown type, pass through
 
     // Alias: recurse into target.
     if (userType.kind === 'alias' && userType.target) {
-      return coerceHexToBytesV2(value, userType.target, typeLookup, fieldHint);
+      return coerceHexToBytesV2(value, userType.target, typeResolver, fieldHint);
     }
 
     // Struct: recurse into fields
@@ -411,7 +405,7 @@ export function coerceHexToBytesV2(
       const result: Record<string, unknown> = { ...(value as Record<string, unknown>) };
       for (const field of fields) {
         if (field.name && field.name in result) {
-          result[field.name] = coerceHexToBytesV2(result[field.name], field.type, typeLookup, field.name);
+          result[field.name] = coerceHexToBytesV2(result[field.name], field.type, typeResolver, field.name);
         }
       }
       return result;
@@ -420,7 +414,7 @@ export function coerceHexToBytesV2(
     // Struct (tuple-shaped — all fields unnamed): recurse by index
     if (userType.kind === 'struct' && userType.fields && Array.isArray(value)) {
       const fields = userType.fields as Array<{ name?: string; type: V2TypeDecl }>;
-      return fields.map((f, i) => coerceHexToBytesV2((value as unknown[])[i], f.type, typeLookup, f.name));
+      return fields.map((f, i) => coerceHexToBytesV2((value as unknown[])[i], f.type, typeResolver, f.name));
     }
 
     // Enum: match variant and recurse into payload fields
@@ -435,21 +429,21 @@ export function coerceHexToBytesV2(
           const payload = obj[variant.name];
           if (variant.fields.length === 1 && !variant.fields[0].name) {
             // Single unnamed field: payload is the raw value
-            return { [variant.name]: coerceHexToBytesV2(payload, variant.fields[0].type, typeLookup, variant.name) };
+            return { [variant.name]: coerceHexToBytesV2(payload, variant.fields[0].type, typeResolver, variant.name) };
           }
           // Struct-shaped variant payload
           if (typeof payload === 'object' && payload !== null && !Array.isArray(payload)) {
             const result: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
             for (const f of variant.fields) {
               if (f.name && f.name in result) {
-                result[f.name] = coerceHexToBytesV2(result[f.name], f.type, typeLookup, f.name);
+                result[f.name] = coerceHexToBytesV2(result[f.name], f.type, typeResolver, f.name);
               }
             }
             return { [variant.name]: result };
           }
           // Tuple-shaped variant payload (array)
           if (Array.isArray(payload)) {
-            return { [variant.name]: variant.fields.map((f, i) => coerceHexToBytesV2((payload as unknown[])[i], f.type, typeLookup, f.name)) };
+            return { [variant.name]: variant.fields.map((f, i) => coerceHexToBytesV2((payload as unknown[])[i], f.type, typeResolver, f.name)) };
           }
           return value;
         }
@@ -479,16 +473,16 @@ export function coerceArgsV2(
 ): unknown[] {
   if (args.length === 0) return args;
 
-  let typeLookup: V2TypeLookup;
+  let typeResolver: TypeResolver;
   try {
-    typeLookup = getV2TypeResolver(program, serviceName);
+    typeResolver = getV2TypeResolver(program, serviceName);
   } catch {
     return args; // Graceful fallback
   }
 
   return args.map((arg, i) => {
     if (i >= argDefs.length) return arg;
-    return coerceHexToBytesV2(arg, argDefs[i].typeDef, typeLookup, argDefs[i].name);
+    return coerceHexToBytesV2(arg, argDefs[i].typeDef, typeResolver, argDefs[i].name);
   });
 }
 

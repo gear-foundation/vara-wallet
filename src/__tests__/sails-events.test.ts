@@ -28,7 +28,7 @@ describe('listEventNames', () => {
   it('lists every event in a flat single-service IDL', async () => {
     const sails: LoadedSails = await parseIdlFileV2(EVENTS_FIXTURE);
     const names = listEventNames(sails).map((x) => `${x.service}/${x.event}`).sort();
-    expect(names).toEqual(['Walker/Stopped', 'Walker/StepCount', 'Walker/Walked'].sort());
+    expect(names).toEqual(['Walker/BalanceChanged', 'Walker/Stopped', 'Walker/StepCount', 'Walker/Walked'].sort());
   });
 
   it('flattens v2 service.extends recursively', async () => {

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
+import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, isSailsV2, type LoadedSails } from '../services/sails';
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
@@ -359,15 +359,13 @@ async function executeFunction(
   }
 
   const result = await txBuilder.signAndSend();
-  let response;
+  let decoded;
   try {
-    response = await result.response();
+    decoded = await decodeFunctionReply(result, sails, func, serviceName);
   } catch (err) {
     throw classifyProgramError(err);
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
-
-  const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 
   // Phase-correlated block-event scan (#37). Walks system.events() at the
   // inclusion block, restricting to records emitted by OUR extrinsic
@@ -395,4 +393,32 @@ async function executeFunction(
     result: decoded,
     events,
   });
+}
+
+async function decodeFunctionReply(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: { response: (rawResult?: boolean) => Promise<any> },
+  sails: LoadedSails,
+  func: { returnTypeDef: unknown },
+  serviceName: string,
+): Promise<unknown> {
+  if (isSailsV2(sails)) {
+    const rawPayload = await result.response(true);
+    const reply = sails.decodeReply(rawPayload);
+    if (reply.kind === 'reply') {
+      const entry = reply.entry as { service: string; fn: string };
+      const replyFunc = sails.services[entry.service]?.functions[entry.fn]
+        ?? sails.services[entry.service]?.queries[entry.fn];
+      return decodeSailsResult(
+        sails,
+        replyFunc?.returnTypeDef ?? func.returnTypeDef,
+        reply.result,
+        entry.service,
+      );
+    }
+    verbose(`decodeFunctionReply: v2 decodeReply returned ${reply.reason}; falling back to builder decode`);
+  }
+
+  const response = await result.response();
+  return decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 }

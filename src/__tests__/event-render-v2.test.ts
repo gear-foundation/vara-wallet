@@ -27,6 +27,7 @@ describe('describeSailsProgram — v2 event payload rendering', () => {
     // wallet normalizes it back to the existing compact struct-style output.
     expect(events.Walked.type).toMatch(/from:\s*\(i32,\s*i32\),\s*to:\s*\(i32,\s*i32\)/);
     expect(events.Walked.type).not.toBe('unknown');
+    expect(events.BalanceChanged.type).toBe('{ amount: U256 }');
 
     // Doc strings propagated for all three.
     expect(events.Stopped.docs).toContain('Unit variant');

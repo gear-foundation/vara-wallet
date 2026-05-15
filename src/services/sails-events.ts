@@ -1,10 +1,10 @@
 /**
  * IDL-aware Sails event decoding.
  *
- * Wraps the per-service `events[E].is(...)` / `events[E].decode(...)` surface
- * exposed by both v1 `Sails` and v2 `SailsProgram`. The shapes are identical
- * across versions; the only v2-specific wrinkle is `service.extends`, which
- * pulls in events from inherited services and must be walked recursively.
+ * v2 events prefer `SailsProgram.decodeEvent`, which owns the header routing
+ * and event dispatch table. v1 keeps the per-service `events[E].is(...)` /
+ * `events[E].decode(...)` scan; v2 also falls back to that scan for inherited
+ * service events that are reachable through `service.extends`.
  *
  * Critical invariant the caller MUST honor: sails-js's `events[E].is()` only
  * checks `destination === ZERO_ADDRESS` and the payload prefix — it does NOT
@@ -25,6 +25,8 @@ import { CliError, errorMessage, verbose } from '../utils';
 import { decodeEventData } from '../utils/decode-sails-result';
 import { isSailsV2, type LoadedSails } from './sails';
 
+const ZERO_ADDRESS = '0x' + '00'.repeat(32);
+
 export interface DecodedSailsEvent {
   service: string;
   event: string;
@@ -40,6 +42,38 @@ export interface DecodedSailsEvent {
  * equals the program ID this `sails` instance was bound to.
  */
 export function decodeSailsEvent(
+  sails: LoadedSails,
+  userMessageSent: UserMessageSent,
+): DecodedSailsEvent | null {
+  if (isSailsV2(sails)) {
+    if (!isZeroDestination(userMessageSent)) return null;
+    const payloadHex = userMessageSent.data.message.payload.toHex();
+    const decoded = sails.decodeEvent(payloadHex);
+    if (decoded.kind === 'event') {
+      const entry = decoded.entry as { service: string; event: string };
+      const serviceName = entry.service;
+      const eventName = entry.event;
+      const event = sails.services[serviceName]?.events[eventName];
+      const data = event
+        ? decodeEventData(sails, event.typeDef, decoded.data, serviceName)
+        : decoded.data;
+      return { service: serviceName, event: eventName, data };
+    }
+  }
+
+  return decodeSailsEventViaServices(sails, userMessageSent);
+}
+
+function isZeroDestination(userMessageSent: UserMessageSent): boolean {
+  const destination = userMessageSent.data.message.destination as unknown as {
+    eq?: (other: unknown) => boolean;
+    toHex?: () => string;
+  } | undefined;
+  if (!destination) return false;
+  return destination.eq?.(ZERO_ADDRESS) === true || destination.toHex?.() === ZERO_ADDRESS;
+}
+
+function decodeSailsEventViaServices(
   sails: LoadedSails,
   userMessageSent: UserMessageSent,
 ): DecodedSailsEvent | null {

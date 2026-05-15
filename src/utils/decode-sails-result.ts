@@ -1,5 +1,6 @@
 /**
- * Post-process a sails-js query/function reply into a fully-decoded JSON tree.
+ * Normalize a sails-js decoded value into the stable JSON shape exposed by
+ * vara-wallet.
  *
  * Motivation: sails-js decodes the top-level codec with toBigInt/toString for a
  * handful of primitives and with .toJSON() for everything else. Polkadot's
@@ -10,10 +11,9 @@
  * wrapping the CLI have to re-parse those hex blobs, which is the bug
  * reported in issue #32.
  *
- * Fix: walk the declared return type (ISailsTypeDef) against the already-
- * decoded JS value and rewrite numeric leaves (hex string OR bigint) to a
- * decimal string. The walker is type-driven, not value-driven, so we never
- * confuse an ActorId hex with a numeric hex.
+ * This does not replace sails-js decoding. It walks the declared return type
+ * against an already-decoded JS value and rewrites numeric leaves (hex string
+ * OR bigint) to decimal strings.
  *
  * V1 typeDef shape (from sails-js-types 0.5.1 accessor interface):
  *   { isPrimitive, asPrimitive, isOptional, asOptional, isVec, asVec,
@@ -28,6 +28,7 @@
  *   - {kind:"tuple"}   → { types: Node[] }
  *   - {kind:"slice"}   → { item: Node }            — `vec T`
  *   - {kind:"array"}   → { item: Node, len: number } — `[T; N]`
+ *   - {fields:[...]}   → service event payload wrapper
  *   User-defined types (resolved through beta.2 TypeResolver):
  *     { name, kind:"struct", fields: [{name, type}] }
  *     { name, kind:"enum",   variants: [{name, fields: [{name?, type}]}] }
@@ -36,7 +37,7 @@
 import { isSailsV2, getRegistryTypes, describeType, resolveV2UserType } from '../services/sails';
 import { verbose } from './output';
 import type { LoadedSails } from '../services/sails';
-import type { SailsProgram, Type, TypeDecl } from 'sails-js';
+import type { Sails, SailsProgram, Type, TypeDecl } from 'sails-js';
 
 type V2Node = string | { kind: string; [k: string]: unknown };
 
@@ -76,7 +77,7 @@ function walk(sails: LoadedSails, typeDef: unknown, value: unknown, serviceName:
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type V1TypeDef = any;
 
-function walkV1(sails: LoadedSails, td: V1TypeDef, value: unknown, serviceName: string): unknown {
+function walkV1(sails: Sails, td: V1TypeDef, value: unknown, serviceName: string): unknown {
   if (td.isPrimitive) return decodePrimitive(primitiveV1Name(td.asPrimitive), value);
 
   if (td.isOptional) return decodeOption(value, (inner) => walkV1(sails, td.asOptional.def, inner, serviceName));
@@ -138,7 +139,7 @@ function walkV1(sails: LoadedSails, td: V1TypeDef, value: unknown, serviceName: 
   }
 
   if (td.isUserDefined) {
-    const resolved = getRegistryTypes(sails, serviceName).get(td.asUserDefined.name);
+    const resolved = getRegistryTypes(sails).get(td.asUserDefined.name);
     if (!resolved) return fallback(sails, td, value, `user-defined type "${td.asUserDefined.name}" not in registry`);
     return walkV1(sails, resolved, value, serviceName);
   }
@@ -186,6 +187,9 @@ function v1VariantIsUnit(def: V1TypeDef): boolean {
 
 function walkV2(sails: SailsProgram, node: V2Node, value: unknown, serviceName: string): unknown {
   if (typeof node === 'string') return decodePrimitive(normalizePrimV2(node), value);
+  if (Array.isArray(node.fields)) {
+    return walkV2EventFields(sails, node as { fields?: Array<{ name?: string; type: V2Node }> }, value, serviceName);
+  }
 
   switch (node.kind) {
     case 'slice': {
@@ -233,6 +237,31 @@ function walkV2(sails: SailsProgram, node: V2Node, value: unknown, serviceName: 
     default:
       return fallback(sails, node, value, `unrecognized v2 node kind "${node.kind}"`);
   }
+}
+
+function walkV2EventFields(
+  sails: SailsProgram,
+  event: { fields?: Array<{ name?: string; type: V2Node }> },
+  value: unknown,
+  serviceName: string,
+): unknown {
+  const fields = event.fields ?? [];
+  if (fields.length === 0) return null;
+  if (fields.length === 1 && !fields[0].name) {
+    return walkV2(sails, fields[0].type, value, serviceName);
+  }
+  if (fields.every((f) => !!f.name)) {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+      return fallback(sails, event, value, 'expected event payload to be an object');
+    }
+    return decodeStructFields(
+      fields.map((f) => ({ name: f.name as string, def: f.type as unknown })),
+      value as Record<string, unknown>,
+      (fdef, fvalue) => walkV2(sails, fdef as V2Node, fvalue, serviceName),
+    );
+  }
+  if (!Array.isArray(value)) return fallback(sails, event, value, 'expected tuple-shaped event payload to be an array');
+  return fields.map((f, i) => walkV2(sails, f.type, value[i], serviceName));
 }
 
 function walkV2UserType(

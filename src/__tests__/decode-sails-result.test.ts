@@ -313,4 +313,19 @@ describe('decodeSailsResult (v2 — Nums fixture)', () => {
     expect(decodeSailsResult(program, td, { id: 7, payload: '0x2a' }, 'Gen'))
       .toEqual({ id: 7, payload: '42' });
   });
+
+  it('normalizes values decoded from beta.2 raw reply payloads', async () => {
+    const program = await parseIdlFileV2(V2_GENERICS_FIXTURE) as SailsProgram;
+    const query = program.services.Gen.queries.ReadAmount;
+    const header = query.encodePayload();
+    const body = program.services.Gen.registry.createType(
+      query.returnType,
+      { id: 7, payload: 42n },
+    ).toHex();
+    const reply = program.decodeReply(`${header}${body.slice(2)}`);
+    if (reply.kind !== 'reply') throw new Error(`decodeReply failed: ${reply.reason}`);
+
+    expect(decodeSailsResult(program, query.returnTypeDef, reply.result, 'Gen'))
+      .toEqual({ id: 7, payload: '42' });
+  });
 });

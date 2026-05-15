@@ -6,7 +6,7 @@
 // describeSailsProgram's event renderer (see Finding C in the PR
 // review).
 
-service Walker@0x8b8f80fc72de9b90 {
+service Walker@0x4b67043b3eb7ea42 {
     events {
         /// Unit variant event.
         Stopped,
@@ -17,6 +17,10 @@ service Walker@0x8b8f80fc72de9b90 {
             from: (i32, i32),
             to: (i32, i32),
         },
+        /// Named-field event with a wide integer leaf.
+        BalanceChanged {
+            amount: u256,
+        },
     }
     functions {
         Walk(dx: i32, dy: i32);
@@ -26,6 +30,6 @@ service Walker@0x8b8f80fc72de9b90 {
 program Demo {
     constructors { Default(); }
     services {
-        Walker@0x8b8f80fc72de9b90,
+        Walker@0x4b67043b3eb7ea42,
     }
 }
