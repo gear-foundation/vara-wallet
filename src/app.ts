@@ -4,6 +4,14 @@ import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { setOutputOptions, installGlobalErrorHandler, outputError, CliError, enableTiming, markStage, markTotal, fastExit } from './utils';
 import { disconnectApi } from './services/api';
+import { disconnectEthexeApi } from './services/ethexe/api';
+import { registerEthexeWalletCommand } from './commands/ethexe-wallet';
+import { registerEthexeMessageCommand } from './commands/ethexe-message';
+import { registerEthexeStateCommand } from './commands/ethexe-state';
+import { registerEthexeProgramCommand } from './commands/ethexe-program';
+import { registerEthexeMailboxCommand } from './commands/ethexe-mailbox';
+import { registerEthexeSubscribeCommand } from './commands/ethexe-subscribe';
+import { registerEthexeStubCommands } from './commands/ethexe-stubs';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
 import { registerBalanceCommand } from './commands/balance';
@@ -51,6 +59,7 @@ program
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
+  .option('--chain <name>', 'target chain: vara (default, substrate) or ethexe (Vara.eth co-processor on Ethereum)')
   .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
   .hook('preAction', () => {
     const opts = program.opts();
@@ -117,6 +126,18 @@ registerEventsCommand(program);
 // Register commands — Phase 5: DEX
 registerDexCommand(program);
 
+// Register commands — Phase 6: ethexe rail (Vara.eth co-processor on Ethereum).
+// These live alongside the substrate equivalents instead of replacing them.
+// Each ethexe command name is prefixed with `ethexe:` (e.g. `ethexe:wallet create`)
+// so they don't clash with the existing substrate-only command tree.
+registerEthexeWalletCommand(program);
+registerEthexeMessageCommand(program);
+registerEthexeStateCommand(program);
+registerEthexeProgramCommand(program);
+registerEthexeMailboxCommand(program);
+registerEthexeSubscribeCommand(program);
+registerEthexeStubCommands(program);
+
 // Graceful shutdown (moved from api.ts so subscribe/keepAlive can override).
 // Subscribe commands don't go through main()'s finally: they await
 // keepAlive(...) which only resolves on signal/timeout, and keepAlive's
@@ -124,10 +145,12 @@ registerDexCommand(program);
 // time main() reaches finally, the WS is already torn down by them.
 process.on('SIGINT', () => {
   disconnectApi();
+  disconnectEthexeApi();
   fastExit(0);
 });
 process.on('SIGTERM', () => {
   disconnectApi();
+  disconnectEthexeApi();
   fastExit(0);
 });
 
@@ -140,6 +163,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     disconnectApi();
+    disconnectEthexeApi();
     markStage('shutdown');
     markTotal();
     fastExit(typeof process.exitCode === 'number' ? process.exitCode : 0);
