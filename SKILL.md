@@ -53,8 +53,13 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW program list [--count N] [--all]` | List on-chain programs (default: 100) |
 | `$VW code info <codeId>` | Code blob metadata |
 | `$VW code list [--count N]` | List uploaded code blobs |
-| `$VW call <pid> Service/Query --args '[]' --idl <path>` | Sails read-only query (free) |
-| `$VW discover <pid> --idl <path>` | Introspect Sails services, methods, events |
+| `$VW call <pid> Service/Query --args '[]' [--idl <path>]` | Sails read-only query (free; IDL auto-resolved from on-chain WASM when embedded) |
+| `$VW discover <pid> [--idl <path>]` | Introspect Sails services, methods, events (IDL auto-resolved) |
+| `$VW idl import <path.idl> (--code-id <hex> \| --program <hex\|ss58>)` | Seed local IDL cache for contracts without an embedded IDL |
+| `$VW idl list` | List cached IDL entries |
+| `$VW idl clear [--yes]` | Wipe IDL cache (bare = preview, `--yes` = commit) |
+| `$VW metadata list` | List cached runtime-metadata entries (saves ~750ms per warm connect) |
+| `$VW metadata clear [--yes]` | Wipe runtime-metadata cache (bare = preview, `--yes` = commit) |
 | `$VW state read <pid>` | Read raw program state |
 | `$VW mailbox read [address]` | Read mailbox messages |
 | `$VW inbox list [--since <duration>] [--limit <n>]` | Query captured mailbox messages from event store |
@@ -204,13 +209,19 @@ $VW vft transfer $TOKEN $TO 1000 --voucher $VOUCHER_ID
 
 ## IDL Resolution
 
-Sails commands (`call`, `discover`, `vft`) require an IDL. Current resolution:
+Sails commands (`call`, `discover`, `vft`, `dex`) need an IDL. Resolution order:
 
-- **`--idl <path>`** — local file, always works
-- **Embedded v2 `sails:idl` section** — auto-extracted from on-chain WASM and cached by code ID
-- **`vara-wallet idl import`** — seeds the cache for v1 programs or out-of-band IDLs
+1. **`--idl <path>`** — local file, always works, takes precedence
+2. **Local cache** — `~/.vara-wallet/idl-cache/<codeId>.cache.json`, populated by previous fetches or `idl import`
+3. **Embedded `sails:idl` section** — auto-extracted from the program's on-chain WASM and cached. Since 0.18.0 the extractor reads the enveloped section format (1-byte version, 1-byte flags with deflate bit, payload) emitted by current sails-rs, with a raw UTF-8 fallback for older beta.1-era programs.
+4. **Bundled IDLs** — standard VFT and Rivr DEX IDLs ship in the binary for `vft` / `dex` commands.
 
-For v2 programs, `call` and `discover` can usually omit `--idl`. For v1 programs, provide `--idl <path>` for one-off use or import the IDL once.
+**Embedded IDL is the default.** Any contract built with current sails-rs ships its IDL inside the WASM, so `call` / `discover` / `vft` / `dex` work without `--idl`; the first invocation populates the cache and subsequent calls hit it for free. `idl import` is only for contracts that don't have an embedded `sails:idl` section:
+
+```bash
+$VW idl import ./my-program.idl --program <programId>     # resolves codeId via RPC
+$VW idl import ./my-program.idl --code-id 0x<hex>         # fully offline
+```
 
 ## Output Parsing
 
@@ -246,11 +257,36 @@ $VW config set network testnet
 
 **Endpoint resolution order:** `--ws` > `--network` > `VARA_WS` env > `config.wsEndpoint` > default.
 
+Connection timeout is 10s. Bad endpoints fail fast with `TRANSPORT_ERROR` instead of hanging — see *Transport Errors* below.
+
 | Network | Endpoint | `--network` shorthand |
 |---------|----------|----------------------|
 | Mainnet | `wss://rpc.vara.network` (default) | `--network mainnet` |
 | Testnet | `wss://testnet.vara.network` | `--network testnet` |
 | Local | `ws://localhost:9944` | `--network local` |
+
+## Transport Errors
+
+Replaces the legacy `CONNECTION_TIMEOUT` (WS) and `TIMEOUT` / `CONNECTION_FAILED` (program/dex/vft/message RPC paths) codes — scripts grepping the old codes won't fire. Faucet HTTP `CONNECTION_FAILED` is unchanged. `--light` failures route through the same taxonomy.
+
+Transport-layer failures (DNS, WS handshake, RPC disconnect, TLS, timeout) surface as structured `TRANSPORT_ERROR` with a `reason` subcode. The error carries `endpoint`, `host` (DNS path), and `cause` at top level (no `meta` envelope — `formatError` flattens `CliError.meta` into the emitted object):
+
+```json
+{"code":"TRANSPORT_ERROR","reason":"dns_failure","error":"Cannot resolve host nonexistent-host","endpoint":"wss://nonexistent-host","host":"nonexistent-host","cause":"getaddrinfo ENOTFOUND nonexistent-host"}
+```
+
+`reason` taxonomy: `dns_failure` | `connection_refused` | `timeout` | `ws_close_abnormal` | `protocol_mismatch` | `unreachable` | `tls_failure` | `unknown`. Switch on it to decide retry vs. fail:
+
+```bash
+case "$(echo "$ERR" | jq -r '.reason // ""')" in
+  timeout|ws_close_abnormal)                                                retry_with_backoff ;;
+  dns_failure|tls_failure|protocol_mismatch|connection_refused|unreachable) fail_fast ;;
+esac
+```
+
+The retry bucket matches the wallet's own auto-retry (see `AGENTS.md`): `timeout` and `ws_close_abnormal` are transient WS / handshake blips that self-clear; the others are deterministic for the current endpoint and want an endpoint swap, not another attempt.
+
+`--verbose` writes a `[verbose] cause: code=<x>, message=<y>` line to stderr immediately before the structured JSON (EPIPE-safe).
 
 ## Units
 
@@ -270,13 +306,14 @@ Existential deposit is ~10 VARA on mainnet.
 | `NO_ACCOUNT` | No signing account | Add `--account <name>` |
 | `PASSPHRASE_REQUIRED` | Encrypted wallet, no passphrase | Check `~/.vara-wallet/.passphrase` exists |
 | `DECRYPT_FAILED` | Wrong passphrase | Verify passphrase file content |
+| `TRANSPORT_ERROR` | Transport-layer failure | Switch on `.reason` to decide retry vs. fail. See *Transport Errors* |
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network congestion |
 | `TX_FAILED` | On-chain failure | Inspect `.events` in output |
-| `IDL_NOT_FOUND` | No Sails IDL — error self-documents v1 vs chain-unavailable | If "v1 contract": `vara-wallet idl import <path> --program <id>`. Otherwise pass `--idl <path>` |
-| `METHOD_NOT_FOUND` | Method not in IDL | Check `discover` output |
+| `IDL_NOT_FOUND` | No embedded `sails:idl` and no cache/bundled match | Run `idl import` (the error pre-fills the command) or pass `--idl <path>`. See *IDL Resolution* |
+| `METHOD_NOT_FOUND` | Method not in IDL | Check `discover` output; cross-service hint is in the error |
 | `INVALID_ARGS_FORMAT` | `--args` not in expected shape | Use a JSON array: `["arg1","arg2"]`. 1-arg struct methods also accept `'{"field":...}'` |
 | `INVALID_ADDRESS` | Wrong shape for `actor_id` | Use hex (0x + 64 chars), SS58, or 32-byte array. Field name in the message |
-| `PROGRAM_ERROR` | Program execution failed | Read `meta.programMessage` for contract error variant. State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems |
+| `PROGRAM_ERROR` | Program execution failed | Read top-level `reason` (`panic`/`unreachable`/`inactive`/`not_found`) and `programMessage` (bare Sails error variant, `Result::unwrap` wrapper stripped). State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems |
 
 ## Guardrails
 
