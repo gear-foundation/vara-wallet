@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-05-15
+
 ### Changed
 
 - Upgraded `sails-js` to the `js/v1.0.0-beta.2` release tarball and moved v2 type lookups onto the public beta.2 resolver APIs. The CLI preserves existing output shapes while accepting beta.2's `kind: "generic"` type nodes and stricter v2 reply-header validation.
