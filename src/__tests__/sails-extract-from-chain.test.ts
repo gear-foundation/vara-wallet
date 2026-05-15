@@ -98,7 +98,7 @@ const FAKE_CODE_ID = '0x' + '11'.repeat(32);
 describe('tryExtractFromChain (B1 regression)', () => {
   const encoder = new TextEncoder();
 
-  it('returns the IDL string when WASM has a sails:idl section', async () => {
+  it('returns plain-text v1 IDL when WASM has a sails:idl section', async () => {
     const idl = 'service Counter { query Value : () -> u32; };';
     const wasm = buildWasm([{ name: 'sails:idl', payload: encoder.encode(idl) }]);
     const codec = makeBytesCodec(wasm);

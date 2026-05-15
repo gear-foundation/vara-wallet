@@ -8,7 +8,13 @@ const testDir = path.join(os.tmpdir(), `vara-resolve-idl-test-${Date.now()}-${pr
 process.env.VARA_WALLET_DIR = testDir;
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-import { _resolveIdlForTests, _resetParserCache } from '../services/sails';
+import {
+  _resolveIdlForTests,
+  _resetParserCache,
+  describeSailsProgram,
+  getSailsVersion,
+  loadSailsAuto,
+} from '../services/sails';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 import { evictCachedIdl, writeCachedIdl, readCachedIdl } from '../services/idl-cache';
 import { SailsIdlParser as V1Parser } from 'sails-js-parser';
@@ -195,6 +201,30 @@ describe('resolveIdl :: stage 3 (chain WASM)', () => {
     expect(cached?.meta.version).toBe('v2');
   });
 
+  it('loads embedded v1 IDL from chain through the auto/discover path', async () => {
+    const wasm = buildWasmWithSailsIdl(TEST_IDL_V1);
+    const api = makeApi({ originalCodeStorage: async () => makeSome(wasm) });
+
+    const sails = await loadSailsAuto(apiArg(api), { programId: PROGRAM_ID });
+    expect(getSailsVersion(sails)).toBe('v1');
+    expect(describeSailsProgram(sails)).toMatchObject({
+      Counter: {
+        queries: {
+          Value: {
+            args: [],
+            returnType: 'u32',
+            docs: null,
+          },
+        },
+      },
+    });
+
+    const cached = readCachedIdl(CODE_ID);
+    expect(cached?.idl).toBe(TEST_IDL_V1);
+    expect(cached?.meta.source).toBe('chain');
+    expect(cached?.meta.version).toBe('unknown');
+  });
+
   it('falls through when originalCodeStorage returns None', async () => {
     const api = makeApi({ originalCodeStorage: async () => makeNone() });
     await expect(_resolveIdlForTests(apiArg(api), { programId: PROGRAM_ID }, null))
@@ -202,10 +232,17 @@ describe('resolveIdl :: stage 3 (chain WASM)', () => {
     expect(readCachedIdl(CODE_ID)).toBeNull();
   });
 
-  it('falls through when WASM has no sails:idl section (v1 program)', async () => {
+  it('falls through when WASM has no sails:idl section', async () => {
     const api = makeApi({ originalCodeStorage: async () => makeSome(WASM_HEADER) });
-    await expect(_resolveIdlForTests(apiArg(api), { programId: PROGRAM_ID }, null))
-      .rejects.toMatchObject({ code: 'IDL_NOT_FOUND' });
+    try {
+      await _resolveIdlForTests(apiArg(api), { programId: PROGRAM_ID }, null);
+      throw new Error('expected _resolveIdlForTests to throw');
+    } catch (err: unknown) {
+      expect(err).toMatchObject({ code: 'IDL_NOT_FOUND' });
+      const msg = (err as Error).message;
+      expect(msg).toContain('has no `sails:idl` custom section');
+      expect(msg).not.toContain('v1 contract');
+    }
     expect(readCachedIdl(CODE_ID)).toBeNull();
   });
 
