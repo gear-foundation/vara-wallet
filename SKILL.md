@@ -269,20 +269,22 @@ Connection timeout is 10s. Bad endpoints fail fast with `TRANSPORT_ERROR` instea
 
 Replaces the legacy `CONNECTION_TIMEOUT` (WS) and `TIMEOUT` / `CONNECTION_FAILED` (program/dex/vft/message RPC paths) codes — scripts grepping the old codes won't fire. Faucet HTTP `CONNECTION_FAILED` is unchanged. `--light` failures route through the same taxonomy.
 
-Transport-layer failures (DNS, WS handshake, RPC disconnect, TLS, timeout) surface as structured `TRANSPORT_ERROR` with a `reason` subcode. The error carries `endpoint`, `host` (DNS path), and `meta.cause`:
+Transport-layer failures (DNS, WS handshake, RPC disconnect, TLS, timeout) surface as structured `TRANSPORT_ERROR` with a `reason` subcode. The error carries `endpoint`, `host` (DNS path), and `cause` at top level (no `meta` envelope — `formatError` flattens `CliError.meta` into the emitted object):
 
 ```json
-{"code":"TRANSPORT_ERROR","reason":"dns_failure","error":"Cannot resolve host nonexistent-host","endpoint":"wss://nonexistent-host","host":"nonexistent-host","meta":{"cause":"<raw>"}}
+{"code":"TRANSPORT_ERROR","reason":"dns_failure","error":"Cannot resolve host nonexistent-host","endpoint":"wss://nonexistent-host","host":"nonexistent-host","cause":"getaddrinfo ENOTFOUND nonexistent-host"}
 ```
 
 `reason` taxonomy: `dns_failure` | `connection_refused` | `timeout` | `ws_close_abnormal` | `protocol_mismatch` | `unreachable` | `tls_failure` | `unknown`. Switch on it to decide retry vs. fail:
 
 ```bash
 case "$(echo "$ERR" | jq -r '.reason // ""')" in
-  timeout|connection_refused|unreachable|ws_close_abnormal) retry_with_backoff ;;
-  dns_failure|tls_failure|protocol_mismatch)                fail_fast ;;
+  timeout|ws_close_abnormal)                                                retry_with_backoff ;;
+  dns_failure|tls_failure|protocol_mismatch|connection_refused|unreachable) fail_fast ;;
 esac
 ```
+
+The retry bucket matches the wallet's own auto-retry (see `AGENTS.md`): `timeout` and `ws_close_abnormal` are transient WS / handshake blips that self-clear; the others are deterministic for the current endpoint and want an endpoint swap, not another attempt.
 
 `--verbose` writes a `[verbose] cause: code=<x>, message=<y>` line to stderr immediately before the structured JSON (EPIPE-safe).
 
