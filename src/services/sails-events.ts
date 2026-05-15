@@ -13,11 +13,8 @@
  * that check leaks events from other programs that happen to share the same
  * service hash + event id.
  *
- * The decoded payload runs through `decodeEventData` (alias of the shared
- * decode walker in `decode-sails-result.ts`) so that nested `Option<U256>`,
- * `Vec<U256>`, etc. normalize identically to `call` replies — a single
- * source of truth for "decoded JSON shape", per Codex findings #6 + Phase 1
- * issue #32.
+ * The decoded payload runs through `decodeEventData` so nested wide integers
+ * normalize identically to `call` replies.
  */
 import type { GearApi, UserMessageSent, HexString } from '@gear-js/api';
 import type { SailsService } from 'sails-js';
@@ -150,7 +147,7 @@ export function resolveEventName(
 }
 
 /**
- * Phase-correlated block-event scan (Codex finding #1 — high severity).
+ * Phase-correlated block-event scan.
  *
  * Reads `system.events()` at `blockHash`, filters down to records whose
  * `phase.asApplyExtrinsic` matches the index of OUR extrinsic in the

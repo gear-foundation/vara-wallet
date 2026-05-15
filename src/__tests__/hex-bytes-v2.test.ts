@@ -224,7 +224,7 @@ describe('coerceArgsV2', () => {
     expect((args[1] as number[]).length).toBe(32);
   });
 
-  it('returns args unchanged when types map is missing', () => {
+  it('returns args unchanged when resolver lookup fails', () => {
     const fakeProgram = {} as SailsProgram;
     const args = coerceArgsV2(['foo'], [{ name: 'x', typeDef: 'String' }], fakeProgram);
     expect(args).toEqual(['foo']);

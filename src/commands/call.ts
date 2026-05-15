@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, isSailsV2, type LoadedSails } from '../services/sails';
+import { loadSailsAuto, suggestMethod, suggestService, isSailsV2, type LoadedSails } from '../services/sails';
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
@@ -82,11 +82,9 @@ export function registerCallCommand(program: Command): void {
       const isFunction = methodName in service.functions;
 
       if (!isQuery && !isFunction) {
-        const description = describeSailsProgram(sails);
-        const serviceDesc = description[serviceName] as Record<string, Record<string, unknown>>;
         const allMethods = [
-          ...Object.keys(serviceDesc.functions || {}).map((m) => `${serviceName}/${m} (function)`),
-          ...Object.keys(serviceDesc.queries || {}).map((m) => `${serviceName}/${m} (query)`),
+          ...Object.keys(service.functions || {}).map((m) => `${serviceName}/${m} (function)`),
+          ...Object.keys(service.queries || {}).map((m) => `${serviceName}/${m} (query)`),
         ];
         const hint = suggestMethod(sails, serviceName, methodName);
         const prefix = hint ? `Did you mean: ${hint}? ` : '';
@@ -107,7 +105,7 @@ export function registerCallCommand(program: Command): void {
             'VOUCHER_ON_QUERY',
           );
         }
-        await executeQuery(api, sails, serviceName, methodName, args, opts, !!options.dryRun);
+        await executeQuery(sails, serviceName, methodName, args, opts, !!options.dryRun);
       } else {
         await executeFunction(api, sails, serviceName, methodName, args, options, opts, programId);
       }
@@ -210,7 +208,6 @@ export function buildQueryDryRun(input: {
 }
 
 async function executeQuery(
-  _api: unknown,
   sails: LoadedSails,
   serviceName: string,
   methodName: string,
@@ -276,14 +273,13 @@ async function executeFunction(
   //   both together  : encode payload AND compute gas, account required.
   //   neither        : real submission (further down).
   //
-  // _resolveDryRunPayloadForTests is the canonical encoder seam (also
-  // exported as a regression hook). The dry-run+estimate path falls
-  // through to gas calc, which mutates txBuilder via
-  // withAccount/withValue/calculateGas — same instance, no rebuild.
+  // The dry-run+estimate path falls through to gas calc, which mutates
+  // txBuilder via withAccount/withValue/calculateGas — same instance,
+  // no rebuild.
   const txBuilder = func(...args);
-  const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
 
   if (options.dryRun && !options.estimate) {
+    const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
     output(buildFunctionDryRun({
       service: serviceName,
       method: methodName,
@@ -324,10 +320,12 @@ async function executeFunction(
   }
 
   if (options.estimate) {
-    const gasLimitStr = (txBuilder.gasInfo as any)?.limit?.toString() ?? txBuilder.gasInfo?.min_limit?.toString() ?? null;
-    const minLimitStr = txBuilder.gasInfo?.min_limit?.toString() ?? null;
+    const gasInfo = txBuilder.gasInfo as { limit?: { toString(): string }; min_limit?: { toString(): string } } | undefined;
+    const gasLimitStr = gasInfo?.limit?.toString() ?? gasInfo?.min_limit?.toString() ?? null;
+    const minLimitStr = gasInfo?.min_limit?.toString() ?? null;
 
     if (options.dryRun) {
+      const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
       // Composition: dry-run shape with estimateGas appended.
       output(buildFunctionDryRun({
         service: serviceName,
@@ -367,11 +365,10 @@ async function executeFunction(
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
-  // Phase-correlated block-event scan (#37). Walks system.events() at the
-  // inclusion block, restricting to records emitted by OUR extrinsic
-  // (via phase index match) and our programId, then runs each through
-  // decodeSailsEvent. Always-on, additive — `events` is a new key, never
-  // replaces or renames anything in the existing reply shape.
+  // Walk system.events() at the inclusion block, restricting to records
+  // emitted by our extrinsic and programId, then decode matching Sails
+  // events. Always-on, additive — `events` is a new key, never replaces or
+  // renames anything in the existing reply shape.
   // sails-js `IMethodReturnType` declares blockHash/txHash as `HexString`
   // (= `0x${string}`) and the runtime (`transaction-builder.js`) returns them
   // already converted via `.toHex()`. No cast needed; pass straight through.

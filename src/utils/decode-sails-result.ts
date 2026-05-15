@@ -8,8 +8,7 @@
  * for any codec wider than JSON numbers can hold (U256, u128, u64 in some
  * configurations). The result: top-level U256 gets a decimal string, but the
  * same U256 nested inside Option / Vec / struct stays as raw hex. Agents
- * wrapping the CLI have to re-parse those hex blobs, which is the bug
- * reported in issue #32.
+ * wrapping the CLI would otherwise have to re-parse those hex blobs.
  *
  * This does not replace sails-js decoding. It walks the declared return type
  * against an already-decoded JS value and rewrites numeric leaves (hex string

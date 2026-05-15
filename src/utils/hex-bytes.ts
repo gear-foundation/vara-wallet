@@ -279,11 +279,6 @@ type V2TypeDecl =
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type V2Type = any; // struct | enum | alias — loose to avoid deep type churn
 
-function resolveV2UserType(typeDecl: V2TypeDecl, typeResolver: TypeResolver): V2Type | undefined {
-  if (typeof typeDecl === 'string' || typeDecl.kind !== 'named') return undefined;
-  return typeResolver.resolveNamed(typeDecl as TypeDecl);
-}
-
 function isV2PrimitiveU8(typeDecl: V2TypeDecl): boolean {
   return typeof typeDecl === 'string' && typeDecl === 'u8';
 }
@@ -391,7 +386,7 @@ export function coerceHexToBytesV2(
     }
 
     // User-defined type: look up in the scoped beta.2 resolver and recurse.
-    const userType = resolveV2UserType(typeDecl, typeResolver);
+    const userType = typeResolver.resolveNamed(typeDecl as TypeDecl) as V2Type | undefined;
     if (!userType) return value; // Unknown type, pass through
 
     // Alias: recurse into target.
@@ -490,9 +485,9 @@ export function coerceArgsV2(
  * Dispatch coerceArgs to the v1 or v2 walker based on the Sails instance type.
  * This is what generic commands (call, encode, program) should call.
  *
- * `serviceName` is v2-only — it narrows the type map to one service's
- * types to avoid cross-service name collisions. Ignored for v1 (which
- * has a single global type namespace).
+ * `serviceName` is v2-only — it selects the service TypeResolver to avoid
+ * cross-service name collisions. Ignored for v1, which has one global type
+ * namespace.
  */
 export function coerceArgsAuto(
   args: unknown[],
