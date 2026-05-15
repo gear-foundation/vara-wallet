@@ -788,6 +788,7 @@ function renderEventType(sails: LoadedSails, event: EventLike, serviceName: stri
 }
 
 function renderEventTypeString(type: string): string {
+  if (!type.startsWith('{')) return type;
   try {
     const parsed = JSON.parse(type) as unknown;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
