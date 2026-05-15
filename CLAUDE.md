@@ -42,7 +42,7 @@ npx jest src/__tests__/units.test.ts
    - `wallet-store.ts` — Encrypted wallet files at `~/.vara-wallet/wallets/` (xsalsa20-poly1305, file mode 0o600)
    - `tx-executor.ts` — Sign, submit, wait for block inclusion, extract events (60s timeout)
    - `event-store.ts` — SQLite persistence via better-sqlite3 (`~/.vara-wallet/events.db`, WAL mode, 7-day auto-prune)
-   - `sails.ts` — IDL loading (local file or meta-storage URL) and typed Sails method invocation
+   - `sails.ts` — IDL loading (local file, on-chain WASM `sails:idl` extraction, or local cache) and typed Sails method invocation
    - `light-client.ts` — SmoldotProvider implementing PolkadotJS ProviderInterface
    - `config.ts` — `~/.vara-wallet/config.json` management
 
