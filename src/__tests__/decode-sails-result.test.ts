@@ -6,6 +6,7 @@ import { decodeSailsResult } from '../utils/decode-sails-result';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
 const V2_FIXTURE = path.join(__dirname, 'fixtures', 'sample-v2-numeric.idl');
+const V2_GENERICS_FIXTURE = path.join(__dirname, 'fixtures', 'sample-v2-generics.idl');
 
 /**
  * We pin one VFT bundled IDL that has the exact shapes the issue reports:
@@ -304,5 +305,12 @@ describe('decodeSailsResult (v2 — Nums fixture)', () => {
     it('snake_case message_id also passes hex through', () => {
       expect(decodeSailsResult(sails, 'message_id', hex32, 'Nums')).toBe(hex32);
     });
+  });
+
+  it('decodes generic user types through the scoped beta.2 resolver', async () => {
+    const program = await parseIdlFileV2(V2_GENERICS_FIXTURE) as SailsProgram;
+    const td = program.services.Gen.queries.ReadAmount.returnTypeDef;
+    expect(decodeSailsResult(program, td, { id: 7, payload: '0x2a' }, 'Gen'))
+      .toEqual({ id: 7, payload: '42' });
   });
 });

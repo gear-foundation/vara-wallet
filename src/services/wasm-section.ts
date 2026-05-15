@@ -1,17 +1,12 @@
 /**
  * Extract the `sails:idl` custom section from a Gear program's WASM blob.
  *
- * sails-js >= 1.0.0-beta.1 embeds the IDL as a WASM custom section named
- * `sails:idl` (see sails/rs/idl-embed/src/lib.rs). For any v2 program whose
- * code is on-chain, this gives a deterministic IDL source without needing
- * a registry or out-of-band file.
- *
- * Uses `WebAssembly.compile()` — the async variant that offloads compilation
- * to a worker thread. The sync `new WebAssembly.Module()` would block the
- * event loop for tens to low-hundreds of milliseconds on typical hundreds-
- * of-KB WASMs; with a 10MB size cap upstream, that could reach ~1s in the
- * worst case. Async is strictly better.
+ * Sails-JS owns the v2 IDL envelope format, so this module routes through its
+ * public extractor first. The small raw-section fallback keeps older beta.1
+ * programs readable because they embedded plain UTF-8 text directly in the
+ * same custom section before the beta.2 envelope was introduced.
  */
+import { extractIdlFromWasm } from 'sails-js/parser';
 
 const SECTION_NAME = 'sails:idl';
 
@@ -20,18 +15,19 @@ const SECTION_NAME = 'sails:idl';
  * or `null` if the section is absent (e.g. v1 program, or sails < 1.0.0-beta.1).
  *
  * Throws when:
- * - `WebAssembly.compile` rejects the bytes as not a valid WASM module.
- * - The `sails:idl` payload is not valid UTF-8 (fatal TextDecoder) —
- *   a corrupt section is a real bug worth surfacing, not silent fallback.
+ * - the bytes are not a valid WASM module/envelope.
+ * - the `sails:idl` payload is not valid UTF-8.
  */
 export async function extractSailsIdl(wasm: Uint8Array): Promise<string | null> {
-  // Copy into a fresh ArrayBuffer-backed view so `WebAssembly.compile` is
-  // happy regardless of whether the caller's buffer is ArrayBuffer or
-  // SharedArrayBuffer (TS's BufferSource type only accepts the former).
+  const enveloped = await extractIdlFromWasm(wasm);
+  if (enveloped !== null) return enveloped;
+  return extractRawSailsIdl(wasm);
+}
+
+async function extractRawSailsIdl(wasm: Uint8Array): Promise<string | null> {
   const bytes = new Uint8Array(wasm);
   const mod = await WebAssembly.compile(bytes);
   const sections = WebAssembly.Module.customSections(mod, SECTION_NAME);
   if (sections.length === 0) return null;
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  return decoder.decode(sections[0]);
+  return new TextDecoder('utf-8', { fatal: true }).decode(sections[0]);
 }

@@ -20,20 +20,22 @@
  *     isStruct, asStruct, isEnum, asEnum, isResult, asResult, isMap, asMap,
  *     isFixedSizeArray, asFixedSizeArray, isUserDefined, asUserDefined }
  *
- * V2 typeDef shape (verified against sails-js 1.0.0-beta.1 parser output):
+ * V2 typeDef shape (sails-js 1.0.0-beta.2 parser output):
  *   Node = string | { kind, ... }
  *   - bare string      → primitive name, e.g. "u32", "String", "u256"
+ *   - {kind:"generic"} → { name } — type parameter leaf inside raw generic definitions
  *   - {kind:"named"}   → { name, generics?: Node[] } — Option / Result / user-defined
  *   - {kind:"tuple"}   → { types: Node[] }
  *   - {kind:"slice"}   → { item: Node }            — `vec T`
  *   - {kind:"array"}   → { item: Node, len: number } — `[T; N]`
- *   User-defined types (_doc.services[i].types):
+ *   User-defined types (resolved through beta.2 TypeResolver):
  *     { name, kind:"struct", fields: [{name, type}] }
  *     { name, kind:"enum",   variants: [{name, fields: [{name?, type}]}] }
  */
 
-import { LoadedSails, isSailsV2, getRegistryTypes, describeType } from '../services/sails';
+import { LoadedSails, isSailsV2, getRegistryTypes, describeType, resolveV2UserType } from '../services/sails';
 import { verbose } from './output';
+import type { SailsProgram, Type, TypeDecl } from 'sails-js';
 
 type V2Node = string | { kind: string; [k: string]: unknown };
 
@@ -181,7 +183,7 @@ function v1VariantIsUnit(def: V1TypeDef): boolean {
 // V2 walker — object form (kind-discriminated)
 // ────────────────────────────────────────────────────────────────────────
 
-function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: string): unknown {
+function walkV2(sails: SailsProgram, node: V2Node, value: unknown, serviceName: string): unknown {
   if (typeof node === 'string') return decodePrimitive(normalizePrimV2(node), value);
 
   switch (node.kind) {
@@ -204,6 +206,9 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
       return items.map((t, i) => walkV2(sails, t, value[i], serviceName));
     }
 
+    case 'generic':
+      return value;
+
     case 'named': {
       const name = node.name as string;
       const generics = (node.generics as V2Node[] | undefined) ?? [];
@@ -217,10 +222,9 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
           (err) => walkV2(sails, generics[1], err, serviceName),
         );
       }
-      // User-defined type — resolve from registry, then recurse on its body.
-      const resolved = getRegistryTypes(sails, serviceName).get(name) as
-        | { kind?: string; fields?: Array<{ name?: string; type: V2Node }>; variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }> }
-        | undefined;
+      // User-defined type — resolve through the scoped beta.2 resolver so
+      // same-named service types do not collide and generics are concrete.
+      const resolved = resolveV2UserType(sails, node as unknown as TypeDecl, serviceName) as V2UserType | undefined;
       if (!resolved) return fallback(sails, node, value, `user-defined type "${name}" not in registry`);
       return walkV2UserType(sails, resolved, value, serviceName);
     }
@@ -231,8 +235,8 @@ function walkV2(sails: LoadedSails, node: V2Node, value: unknown, serviceName: s
 }
 
 function walkV2UserType(
-  sails: LoadedSails,
-  udt: { kind?: string; fields?: Array<{ name?: string; type: V2Node }>; variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }> },
+  sails: SailsProgram,
+  udt: V2UserType,
   value: unknown,
   serviceName: string,
 ): unknown {
@@ -241,7 +245,7 @@ function walkV2UserType(
     const isTuple = fields.length > 0 && fields.every((f) => !f.name);
     if (isTuple) {
       if (!Array.isArray(value)) return fallback(sails, udt, value, 'expected tuple-struct value to be an array');
-      return fields.map((f, i) => walkV2(sails, f.type, value[i], serviceName));
+      return fields.map((f, i) => walkV2(sails, f.type as V2Node, value[i], serviceName));
     }
     if (value == null || typeof value !== 'object' || Array.isArray(value)) {
       return fallback(sails, udt, value, 'expected struct value to be an object');
@@ -267,7 +271,7 @@ function walkV2UserType(
 }
 
 function walkV2EnumPayload(
-  sails: LoadedSails,
+  sails: SailsProgram,
   variant: { fields?: Array<{ name?: string; type: V2Node }> },
   payload: unknown,
   serviceName: string,
@@ -291,8 +295,13 @@ function walkV2EnumPayload(
   }
   // Mixed — tuple-like.
   if (!Array.isArray(payload)) return fallback(sails, variant, payload, 'expected tuple-shaped enum payload to be an array');
-  return fields.map((f, i) => walkV2(sails, f.type, payload[i], serviceName));
+  return fields.map((f, i) => walkV2(sails, f.type as V2Node, payload[i], serviceName));
 }
+
+type V2UserType = Type & {
+  fields?: Array<{ name?: string; type: V2Node }>;
+  variants?: Array<{ name: string; fields?: Array<{ name?: string; type: V2Node }> }>;
+};
 
 function normalizePrimV2(s: string): string {
   // Lowercase then strip underscores so snake_case ("actor_id") and

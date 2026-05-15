@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded `sails-js` to the `js/v1.0.0-beta.2` release tarball and moved v2 type lookups onto the public beta.2 resolver APIs. The CLI preserves existing output shapes while accepting beta.2's `kind: "generic"` type nodes and stricter v2 reply-header validation.
+- `sails:idl` extraction now uses Sails-JS's public extractor for beta.2 enveloped sections, with a raw UTF-8 section fallback for older beta.1-style programs.
+
 ## [0.17.0] - 2026-05-12
 
 One theme since 0.16.0: **transport-error classification** (PR #59, closes #58). The companion to v0.16.0's `PROGRAM_ERROR` + `reason` work at the layer below — every transport-layer failure (DNS, WS handshake, RPC disconnect, TLS, timeout) now surfaces as a structured `TRANSPORT_ERROR` with a `reason` subcode, replacing the historical opaque `{"error":"{}","code":"UNKNOWN_ERROR"}` payload that hid network failures from agent retry logic. **Breaking for grep-based consumers:** WS-path `CONNECTION_TIMEOUT` and program-path `TIMEOUT` / `CONNECTION_FAILED` are migrated to `TRANSPORT_ERROR` + `reason` subcode (faucet HTTP `CONNECTION_FAILED` unchanged) — see *Changed* below for details. Unblocks #60 (auto-retry on transient transport errors) and #61 (`vara-wallet doctor` health-check subcommand). Field-validated against the 2026-05-12 evidence pass that triggered the original issue (flaky `wss://testnet.vara.network` during a real testnet deploy).
