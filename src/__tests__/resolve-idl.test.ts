@@ -236,7 +236,7 @@ describe('resolveIdl :: stage 3 (chain WASM)', () => {
     const api = makeApi({ originalCodeStorage: async () => makeSome(WASM_HEADER) });
     try {
       await _resolveIdlForTests(apiArg(api), { programId: PROGRAM_ID }, null);
-      fail('expected throw');
+      throw new Error('expected _resolveIdlForTests to throw');
     } catch (err: unknown) {
       expect(err).toMatchObject({ code: 'IDL_NOT_FOUND' });
       const msg = (err as Error).message;
