@@ -10,7 +10,7 @@
  * a Phase 4 follow-up.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { bytesToHex, type PublicClient } from 'viem';
 import { LocalSigner, type ITransactionSigner } from '@vara-eth/api';
@@ -19,7 +19,7 @@ import { decryptKeystore } from '../../shared/keyring-eth/keystore';
 import { loadEthexeWallet } from '../../shared/keyring-eth/store';
 import { KeystoreDecryptError, WrongPassphraseError } from '../../shared/errors-eth';
 import { CliError } from '../../utils/errors';
-import { readConfig } from '../config';
+import { getConfigDir, readConfig } from '../config';
 
 export interface EthexeAccountOptions {
   account?: string;
@@ -30,9 +30,10 @@ function resolvePassphrase(walletName: string, explicit?: string): string {
   if (explicit) return explicit;
   if (process.env.VARA_PASSPHRASE) return process.env.VARA_PASSPHRASE;
 
-  const passphraseFile = path.join(process.env.VARA_WALLET_DIR ?? path.join(process.env.HOME ?? '~', '.vara-wallet'), '.passphrase');
-  if (existsSync(passphraseFile)) {
-    return readFileSync(passphraseFile, 'utf8').trim();
+  try {
+    return readFileSync(path.join(getConfigDir(), '.passphrase'), 'utf8').trim();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
   throw new CliError(
     `Ethexe wallet "${walletName}" needs a passphrase. Provide --passphrase, set VARA_PASSPHRASE, or write to ~/.vara-wallet/.passphrase.`,

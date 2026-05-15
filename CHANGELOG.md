@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added — ethexe rail (Phase 3a + 3b)
+
+Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so the same CLI now drives both substrate Vara and ethexe. Substrate commands are untouched. Ethexe commands live under the `ethexe:` prefix to make rail selection explicit at the call site instead of hiding it behind a `--chain` flag.
+
+- **Wallet management** (`ethexe:wallet create|import|list|show|keys`). New `~/.vara-wallet/wallets/<name>.ethexe.json` files in standard Ethereum V3 keystore format (scrypt + AES-128-CTR), MetaMask / ethers / web3.js interoperable. Keys derive at BIP44 path `m/44'/60'/0'/0/0` from a generated 12-word BIP39 mnemonic, or from `--mnemonic` / `--private-key` on import. Files written 0o600 via the existing `writeUserFile` helper. Substrate wallets stay at `<name>.json` until the first ethexe command, when a one-time migration renames them to `<name>.vara.json` so both rails coexist by suffix.
+- **Messaging** (`ethexe:message send|reply`). `send` defaults to the injected-transaction path (signed off-chain, dispatched through any validator), with `--via eth` falling back to the direct on-chain `Mirror.sendMessage`. `reply` always goes through `Mirror.sendReply`.
+- **Program lifecycle** (`ethexe:program deploy|top-up`). `deploy` runs the combined upload + create ceremony via `api.programs.deploy` (WVARA permit signing + `requestCodeValidation` + `CodeGotValidated` wait + `createProgram*` selection). `top-up` calls `Mirror.executableBalanceTopUp`.
+- **State inspection** (`ethexe:state read`). Reads from the co-processor RPC; `--full` / `--queue` / `--mailbox` opt in to richer views.
+- **Mailbox** (`ethexe:mailbox claim`). Claims a value entry by `claimedId`.
+- **Event streams** (`ethexe:subscribe program|router|blocks`). Emits NDJSON to stdout until SIGINT/SIGTERM; backed by `api.stream.programEvents` / `routerEvents` / `blocks` (typed discriminated unions over every Mirror and Router event + block headers).
+- **Phase 3b stubs** (`ethexe:wvara *`, `ethexe:inheritor recover`, `ethexe:validators *`). Registered with clear "(coming soon)" descriptions and throw `UnsupportedChainOperationError` at call time — keeps `--help` accurate and lets agents probe the surface without crashing.
+
+### Added — supporting infrastructure
+
+- **Chain dispatch** at `src/chains/types.ts` (`Chain = 'vara' | 'ethexe'`, `resolveChain()` with precedence `--chain` > `config.defaultChain` > `'vara'`).
+- **Wallet-side error taxonomy** at `src/shared/errors-eth/` (`KeystoreDecryptError`, `WrongPassphraseError`, `UnsupportedChainOperationError`). Lib-side typed errors stay in `@vara-eth/api` to preserve its adapter shape.
+- **Shared CLI argument validators** at `src/utils/eth-types.ts` (`asAddress`, `asHex`, `parseOptionalBigInt`) backed by viem's `isAddress` / `isHex`.
+- **Config** (`src/services/config.ts`) extended with `defaultChain`, `varaEthRpc`, `ethereumRpc`, `routerAddress` fields. All optional; env vars (`VARA_ETH_RPC`, `ETHEREUM_RPC`, `VARA_ETH_ROUTER`) take precedence.
+
+### Changed
+
+- **Node engine** bumped to `>=22` (already in `vs/node-22-bump`). Matches `@vara-eth/api`'s engine requirement.
+- **esbuild bundle externalises** the cryptographic + ESM-only deps (`@noble/ciphers`, `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `viem`, `kzg-wasm`, `@vara-eth/api`) so Node's runtime resolution picks the right CJS/ESM variant. Without this, esbuild followed the ESM `exports.import` path of `kzg-wasm` which uses `import.meta.url` and crashes in a CJS bundle.
+- **jest** configured to transform `@noble/*` and `@scure/*` ESM sources via ts-jest, and to stub `@vara-eth/api` (`src/__tests__/fixtures/vara-eth-api.stub.ts`) so unit tests don't drag the full viem + kzg-wasm tree into ts-jest.
+
+### Dependencies
+
+- Adds: `@noble/ciphers`, `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `kzg-wasm`, `viem` (aliased to `@vara-eth/viem@2.48.11` fork for EIP-7594 blob support), and `@vara-eth/api` (currently `file:vendor/vara-eth-api-0.5.0-rc.0.tgz` until the public npm publish — see release-train discipline in `~/.gstack/projects/gear-tech-gear/session-plans/2026-05-16-phase-2-3-implementation.md`).
+
+### Tests
+
+- 25 new unit tests: keystore round-trip (encrypt/decrypt/wrong-passphrase/non-32-byte rejection/V3 shape), BIP39 + BIP32 HD derivation against the Anvil mnemonic, chain resolution precedence, wallet-store file-mode + migration semantics. Total suite: 734 passing.
+
 ## [0.19.0] - 2026-05-16
 
 One theme since 0.18.0: **transient flake stops being the operator's problem**. The 0.17.0 release classified transport-layer failures with `TRANSPORT_ERROR` + `reason` subcodes (PR #59); the 0.19.0 release closes the loop by retrying the reasons that self-clear (`timeout`, `ws_close_abnormal`) before the error ever reaches stdout. Agents that previously wrapped `vara-wallet call` in a custom retry loop (e.g. `gear-foundation/vara-agent-network` PR #37) can drop that scaffolding. Permanent reasons (DNS / TLS / protocol mismatch / connection refused / unreachable) still fail fast so the operator sees them immediately and can act.
