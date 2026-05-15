@@ -6,6 +6,8 @@ import { getRegistryTypes, getV2TypeResolver } from '../services/sails';
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
 const ACTOR_ID_HEX_RE = /^0x[0-9a-fA-F]{64}$/;
 
+type FixedU8ArrayMatch = { match: true; len: number } | { match: false };
+
 /**
  * Check if a typeDef represents `vec u8`.
  */
@@ -22,7 +24,7 @@ function isVecU8(typeDef: any): boolean {
  * Check if a typeDef represents `[u8; N]`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isFixedU8Array(typeDef: any): { match: boolean; len?: number } {
+function isFixedU8Array(typeDef: any): FixedU8ArrayMatch {
   if (
     typeDef.isFixedSizeArray &&
     typeDef.asFixedSizeArray.def.isPrimitive &&
@@ -63,13 +65,6 @@ function hexToBytes(value: string, fieldHint?: string): number[] {
   return Array.from(Buffer.from(hex, 'hex'));
 }
 
-/**
- * If `value` is a `0x`-prefixed hex string, convert it to a byte array.
- * When `expectedLen` is provided, throw if the decoded length doesn't
- * match — used by `[u8; N]` and fixed-width array branches. Returns
- * the value unchanged if it isn't a hex string (so downstream encoders
- * can accept pre-decoded bytes).
- */
 /**
  * Coerce an ActorId arg: accept canonical 32-byte hex as-is (byte-identical
  * with pre-ActorId-SS58 behavior), or SS58 via `addressToHex`. Non-string
@@ -116,6 +111,13 @@ function tryActorIdToHex(value: unknown, fieldHint?: string): unknown {
   }
 }
 
+/**
+ * If `value` is a `0x`-prefixed hex string, convert it to a byte array.
+ * When `expectedLen` is provided, throw if the decoded length doesn't
+ * match — used by `[u8; N]` and fixed-width array branches. Returns
+ * the value unchanged if it isn't a hex string (so downstream encoders
+ * can accept pre-decoded bytes).
+ */
 function tryHexToBytes(value: unknown, fieldHint?: string, expectedLen?: number): unknown {
   if (!isNonEmptyHex(value)) return value;
   const bytes = hexToBytes(value, fieldHint);
@@ -161,12 +163,6 @@ export function coerceHexToBytes(value: unknown, typeDef: any, typeMap: TypeMap,
   // Struct: recurse into each field
   if (typeDef.isStruct && typeof value === 'object' && !Array.isArray(value)) {
     const struct = typeDef.asStruct;
-    if (struct.isTuple && Array.isArray(value)) {
-      // Tuple struct: recurse by index
-      return struct.fields.map((f: { def: unknown }, i: number) =>
-        coerceHexToBytes((value as unknown[])[i], f.def, typeMap, fieldHint),
-      );
-    }
     const result: Record<string, unknown> = { ...(value as Record<string, unknown>) };
     for (const field of struct.fields) {
       if (field.name in result) {
@@ -210,7 +206,7 @@ export function coerceHexToBytes(value: unknown, typeDef: any, typeMap: TypeMap,
 
   // Vec (non-u8): recurse into elements
   if (typeDef.isVec && Array.isArray(value)) {
-    return value.map((item, i) => coerceHexToBytes(item, typeDef.asVec.def, typeMap, fieldHint));
+    return value.map((item) => coerceHexToBytes(item, typeDef.asVec.def, typeMap, fieldHint));
   }
 
   // Map: recurse into values
@@ -302,7 +298,7 @@ function isV2SliceU8(typeDecl: V2TypeDecl): boolean {
   return typeof typeDecl === 'object' && typeDecl.kind === 'slice' && isV2PrimitiveU8(typeDecl.item);
 }
 
-function isV2ArrayU8(typeDecl: V2TypeDecl): { match: boolean; len?: number } {
+function isV2ArrayU8(typeDecl: V2TypeDecl): FixedU8ArrayMatch {
   if (typeof typeDecl === 'object' && typeDecl.kind === 'array' && isV2PrimitiveU8(typeDecl.item)) {
     return { match: true, len: typeDecl.len };
   }
@@ -336,7 +332,7 @@ export function coerceHexToBytesV2(
 
   // Fixed array of u8 → bytes with length validation
   const fixed = isV2ArrayU8(typeDecl);
-  if (fixed.match && fixed.len !== undefined) return tryHexToBytes(value, fieldHint, fixed.len);
+  if (fixed.match) return tryHexToBytes(value, fieldHint, fixed.len);
 
   // PrimitiveType (string literal): no byte fields to coerce
   if (typeof typeDecl === 'string') return value;

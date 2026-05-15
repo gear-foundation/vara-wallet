@@ -33,8 +33,9 @@
  *     { name, kind:"enum",   variants: [{name, fields: [{name?, type}]}] }
  */
 
-import { LoadedSails, isSailsV2, getRegistryTypes, describeType, resolveV2UserType } from '../services/sails';
+import { isSailsV2, getRegistryTypes, describeType, resolveV2UserType } from '../services/sails';
 import { verbose } from './output';
+import type { LoadedSails } from '../services/sails';
 import type { SailsProgram, Type, TypeDecl } from 'sails-js';
 
 type V2Node = string | { kind: string; [k: string]: unknown };
@@ -318,8 +319,8 @@ function normalizePrimV2(s: string): string {
   if (lower === 'char') return 'char';
   if (lower === 'null' || lower === '()') return 'null';
   // ints — u8..u256, i8..i128, nonzero-*
-  const m = lower.match(/^(?:nonzero)?(u|i)(\d+)$/);
-  if (m) return `${m[1]}${m[2]}`;
+  const intMatch = lower.match(/^(?:nonzero)?(u|i)(\d+)$/);
+  if (intMatch) return `${intMatch[1]}${intMatch[2]}`;
   return lower;
 }
 
@@ -369,14 +370,12 @@ function decodeOption(value: unknown, decodeInner: (v: unknown) => unknown): unk
   if (value == null) return null;
   // Belt-and-suspenders: unwrap {Some: x} / {None: null} if polkadot ever emits
   // the non-flattened shape (it usually doesn't).
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const k = keys[0].toLowerCase();
-      if (k === 'none') return null;
-      if (k === 'some') return decodeInner(obj[keys[0]]);
-    }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [key, inner] = entry;
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'none') return null;
+    if (lowerKey === 'some') return decodeInner(inner);
   }
   return decodeInner(value);
 }
@@ -386,14 +385,12 @@ function decodeResult(
   decodeOk: (v: unknown) => unknown,
   decodeErr: (v: unknown) => unknown,
 ): unknown {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    if (keys.length === 1) {
-      const k = keys[0].toLowerCase();
-      if (k === 'ok') return { kind: 'Ok', value: decodeOk(obj[keys[0]]) };
-      if (k === 'err') return { kind: 'Err', value: decodeErr(obj[keys[0]]) };
-    }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [key, payload] = entry;
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'ok') return { kind: 'Ok', value: decodeOk(payload) };
+    if (lowerKey === 'err') return { kind: 'Err', value: decodeErr(payload) };
   }
   return value;
 }
@@ -419,26 +416,31 @@ function decodeEnum(
 ): unknown {
   // Unit variant emitted as a bare string.
   if (typeof value === 'string') {
-    const match = variants.find((v) => v.name.toLowerCase() === value.toLowerCase());
+    const lowerValue = value.toLowerCase();
+    const match = variants.find((v) => v.name.toLowerCase() === lowerValue);
     if (match) return { kind: match.name };
     return value;
   }
   // Payload variant emitted as {variantName: payload}.
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const keys = Object.keys(value as Record<string, unknown>);
-    if (keys.length === 1) {
-      const jsonKey = keys[0];
-      const match = variants.find((v) => v.name.toLowerCase() === jsonKey.toLowerCase()
-        || lowerFirst(v.name) === jsonKey);
-      if (match) {
-        const payload = (value as Record<string, unknown>)[jsonKey];
-        if (isUnit(match.def)) return { kind: match.name };
-        const decoded = decodeVariant(match.def, payload);
-        return decoded === undefined ? { kind: match.name } : { kind: match.name, value: decoded };
-      }
+  const entry = singleObjectEntry(value);
+  if (entry) {
+    const [jsonKey, payload] = entry;
+    const lowerJsonKey = jsonKey.toLowerCase();
+    const match = variants.find((v) => v.name.toLowerCase() === lowerJsonKey || lowerFirst(v.name) === jsonKey);
+    if (match) {
+      if (isUnit(match.def)) return { kind: match.name };
+      const decoded = decodeVariant(match.def, payload);
+      return decoded === undefined ? { kind: match.name } : { kind: match.name, value: decoded };
     }
   }
   return value;
+}
+
+function singleObjectEntry(value: unknown): [string, unknown] | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  return keys.length === 1 ? [keys[0], obj[keys[0]]] : null;
 }
 
 function findKeyCaseInsensitiveFirst(obj: Record<string, unknown>, declared: string): string | undefined {

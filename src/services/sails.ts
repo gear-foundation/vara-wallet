@@ -870,9 +870,9 @@ export function suggestMethod(
   const exactHits: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
     const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
-    for (const m of methodNames) {
-      if (m.toLowerCase() === lowerMethod && !(svcName === serviceName && m === methodName)) {
-        exactHits.push(`${svcName}/${m}`);
+    for (const candidateMethod of methodNames) {
+      if (candidateMethod.toLowerCase() === lowerMethod && !(svcName === serviceName && candidateMethod === methodName)) {
+        exactHits.push(`${svcName}/${candidateMethod}`);
       }
     }
   }
@@ -886,17 +886,17 @@ export function suggestMethod(
   let bestMatches: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
     const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
-    for (const m of methodNames) {
+    for (const candidateMethod of methodNames) {
       // Skip identity (shouldn't happen — caller already checked the
       // method is missing — but defensive).
-      if (svcName === serviceName && m === methodName) continue;
-      const d = levenshtein(methodName, m, cap);
-      if (d > cap) continue;
-      if (d < bestDist) {
-        bestDist = d;
-        bestMatches = [`${svcName}/${m}`];
-      } else if (d === bestDist) {
-        bestMatches.push(`${svcName}/${m}`);
+      if (svcName === serviceName && candidateMethod === methodName) continue;
+      const distance = levenshtein(methodName, candidateMethod, cap);
+      if (distance > cap) continue;
+      if (distance < bestDist) {
+        bestDist = distance;
+        bestMatches = [`${svcName}/${candidateMethod}`];
+      } else if (distance === bestDist) {
+        bestMatches.push(`${svcName}/${candidateMethod}`);
       }
     }
   }
@@ -925,15 +925,15 @@ export function suggestService(sails: LoadedSails, serviceName: string): string 
   const cap = 2;
   let bestDist = cap + 1;
   let bestMatches: string[] = [];
-  for (const s of services) {
-    if (s === serviceName) continue;
-    const d = levenshtein(serviceName, s, cap);
-    if (d > cap) continue;
-    if (d < bestDist) {
-      bestDist = d;
-      bestMatches = [s];
-    } else if (d === bestDist) {
-      bestMatches.push(s);
+  for (const candidateService of services) {
+    if (candidateService === serviceName) continue;
+    const distance = levenshtein(serviceName, candidateService, cap);
+    if (distance > cap) continue;
+    if (distance < bestDist) {
+      bestDist = distance;
+      bestMatches = [candidateService];
+    } else if (distance === bestDist) {
+      bestMatches.push(candidateService);
     }
   }
   if (bestMatches.length === 1) return bestMatches[0];
