@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Transparent retry on transient transport errors** (issue #60). `getApi()` now retries the connect path up to 3 attempts when the underlying failure is `TRANSPORT_ERROR` with `reason ∈ {timeout, ws_close_abnormal}`. Permanent reasons (`dns_failure`, `tls_failure`, `protocol_mismatch`, `connection_refused`, `unreachable`, `unknown`) still fail fast — retry would just waste wallclock. Backoff `[0, 250, 1000]ms` with ±50% jitter to prevent thundering-herd when N agents fail in lockstep against the same flaky endpoint. `--verbose` surfaces each retry boundary: `[verbose] retry 1/2 after transport timeout (125ms backoff)`. Opt-out: set `VARA_NO_RETRY` to any of `1`, `true`, `yes`, or `on` (case-insensitive) for strict single-attempt semantics — recommended in CI where per-command wallclock matters, as a flaky endpoint can otherwise inflate suite time by ~3×. The metadata-cache retry branch composes correctly with transport retry. Renders the agent-side retry-loop workaround in `gear-foundation/vara-agent-network` PR #37 (already merged) redundant — downstream agent skills can drop their custom retry once they pick up this version.
+
 ## [0.18.0] - 2026-05-15
 
 ### Changed
