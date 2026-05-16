@@ -8,6 +8,7 @@ import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
+import { resolveTokenIdentifier, tokenResolutionMeta, TokenResolveOptions, ResolvedToken } from '../services/token-registry';
 import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, classifyProgramError, validateUnits } from '../utils';
 import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
@@ -476,12 +477,23 @@ function parseSlippage(value: string | undefined): number {
 
 interface DexGlobalOptions {
   ws?: string;
+  network?: string;
   factory?: string;
   idl?: string;
   units?: string;
   slippage?: string;
   deadline?: string;
   skipApprove?: boolean;
+}
+
+function tokenMetaForAddress(
+  address: string,
+  tokens: ResolvedToken[],
+  prefix: string,
+): Record<string, unknown> {
+  const target = address.toLowerCase();
+  const resolved = tokens.find((token) => token.address.toLowerCase() === target);
+  return resolved ? tokenResolutionMeta(resolved, prefix) : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -547,16 +559,18 @@ export function registerDexCommand(program: Command): void {
   dex
     .command('pool')
     .description('Query pool info (reserves, prices, tokens)')
-    .argument('<token0>', 'first token address (0x...)')
-    .argument('<token1>', 'second token address (0x...)')
+    .argument('<token0>', 'first token address (0x...) or built-in token alias')
+    .argument('<token1>', 'second token address (0x...) or built-in token alias')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
     .action(async (token0: string, token1: string, options: { factory?: string; idl?: string }) => {
       const opts = program.optsWithGlobals() as DexGlobalOptions;
+      const token0Resolved = resolveTokenIdentifier(token0, opts);
+      const token1Resolved = resolveTokenIdentifier(token1, opts);
       const api = await getApi(opts.ws);
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
-      const pairAddress = await resolvePairAddress(factorySails, token0, token1);
+      const pairAddress = await resolvePairAddress(factorySails, token0Resolved.address, token1Resolved.address);
       const pairSails = await loadPairSails(api, pairAddress, {});
 
       const pairService = findDexService(pairSails, 'GetReserves');
@@ -599,6 +613,7 @@ export function registerDexCommand(program: Command): void {
         pairAddress,
         token0: {
           address: pairToken0,
+          ...tokenMetaForAddress(pairToken0, [token0Resolved, token1Resolved], 'token'),
           symbol: sym0,
           decimals: dec0,
           reserve: String(reserve0),
@@ -606,6 +621,7 @@ export function registerDexCommand(program: Command): void {
         },
         token1: {
           address: pairToken1,
+          ...tokenMetaForAddress(pairToken1, [token0Resolved, token1Resolved], 'token'),
           symbol: sym1,
           decimals: dec1,
           reserve: String(reserve1),
@@ -620,8 +636,8 @@ export function registerDexCommand(program: Command): void {
   dex
     .command('quote')
     .description('Get swap quote (amount out for given input)')
-    .argument('<tokenIn>', 'input token address (0x...)')
-    .argument('<tokenOut>', 'output token address (0x...)')
+    .argument('<tokenIn>', 'input token address (0x...) or built-in token alias')
+    .argument('<tokenOut>', 'output token address (0x...) or built-in token alias')
     .argument('<amount>', 'input amount (or output amount with --reverse)')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
@@ -631,13 +647,15 @@ export function registerDexCommand(program: Command): void {
       factory?: string; idl?: string; units?: string; reverse?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as DexGlobalOptions;
+      const tokenInResolved = resolveTokenIdentifier(tokenIn, opts);
+      const tokenOutResolved = resolveTokenIdentifier(tokenOut, opts);
       const api = await getApi(opts.ws);
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
-      const pairAddress = await resolvePairAddress(factorySails, tokenIn, tokenOut);
+      const pairAddress = await resolvePairAddress(factorySails, tokenInResolved.address, tokenOutResolved.address);
       const pairSails = await loadPairSails(api, pairAddress, {});
 
-      const direction = await resolveTokenDirection(pairSails, tokenIn, tokenOut);
+      const direction = await resolveTokenDirection(pairSails, tokenInResolved.address, tokenOutResolved.address);
       const units = options.units ?? opts.units;
       const inputToken = direction.is_token0_to_token1 ? direction.token0 : direction.token1;
       const outputToken = direction.is_token0_to_token1 ? direction.token1 : direction.token0;
@@ -683,7 +701,9 @@ export function registerDexCommand(program: Command): void {
 
       output({
         tokenIn: inputToken,
+        ...tokenResolutionMeta(tokenInResolved, 'tokenIn'),
         tokenOut: outputToken,
+        ...tokenResolutionMeta(tokenOutResolved, 'tokenOut'),
         amountIn: String(amountIn),
         amountOut: String(amountOut),
         amountInFormatted: decIn !== null ? minimalToVara(amountIn, decIn) : null,
@@ -697,8 +717,8 @@ export function registerDexCommand(program: Command): void {
   dex
     .command('swap')
     .description('Execute a token swap')
-    .argument('<tokenIn>', 'input token address (0x...)')
-    .argument('<tokenOut>', 'output token address (0x...)')
+    .argument('<tokenIn>', 'input token address (0x...) or built-in token alias')
+    .argument('<tokenOut>', 'output token address (0x...) or built-in token alias')
     .argument('<amount>', 'amount to swap')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
@@ -713,16 +733,18 @@ export function registerDexCommand(program: Command): void {
       deadline?: string; exactOut?: boolean; skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
+      const tokenInResolved = resolveTokenIdentifier(tokenIn, opts);
+      const tokenOutResolved = resolveTokenIdentifier(tokenOut, opts);
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
       const slippageBps = parseSlippage(options.slippage ?? opts.slippage);
 
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
-      const pairAddress = await resolvePairAddress(factorySails, tokenIn, tokenOut);
+      const pairAddress = await resolvePairAddress(factorySails, tokenInResolved.address, tokenOutResolved.address);
       const pairSails = await loadPairSails(api, pairAddress, {});
 
-      const direction = await resolveTokenDirection(pairSails, tokenIn, tokenOut);
+      const direction = await resolveTokenDirection(pairSails, tokenInResolved.address, tokenOutResolved.address);
       const units = options.units ?? opts.units;
       const inputToken = direction.is_token0_to_token1 ? direction.token0 : direction.token1;
       const outputToken = direction.is_token0_to_token1 ? direction.token1 : direction.token0;
@@ -762,6 +784,10 @@ export function registerDexCommand(program: Command): void {
         await executeDexTx(api, pairSails, pairService, 'SwapTokensForExactTokens', [
           amountOut, amountInMax, direction.is_token0_to_token1, deadline,
         ], account, {
+          tokenIn: inputToken,
+          ...tokenResolutionMeta(tokenInResolved, 'tokenIn'),
+          tokenOut: outputToken,
+          ...tokenResolutionMeta(tokenOutResolved, 'tokenOut'),
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
         }, options.voucher, pairAddress);
@@ -791,6 +817,10 @@ export function registerDexCommand(program: Command): void {
         await executeDexTx(api, pairSails, pairService, 'SwapExactTokensForTokens', [
           amountIn, amountOutMin, direction.is_token0_to_token1, deadline,
         ], account, {
+          tokenIn: inputToken,
+          ...tokenResolutionMeta(tokenInResolved, 'tokenIn'),
+          tokenOut: outputToken,
+          ...tokenResolutionMeta(tokenOutResolved, 'tokenOut'),
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
         }, options.voucher, pairAddress);
@@ -801,8 +831,8 @@ export function registerDexCommand(program: Command): void {
   dex
     .command('add-liquidity')
     .description('Add liquidity to a trading pair')
-    .argument('<token0>', 'first token address (0x...)')
-    .argument('<token1>', 'second token address (0x...)')
+    .argument('<token0>', 'first token address (0x...) or built-in token alias')
+    .argument('<token1>', 'second token address (0x...) or built-in token alias')
     .argument('<amount0>', 'desired amount of first token')
     .argument('<amount1>', 'desired amount of second token')
     .option('--factory <addr>', 'factory program address')
@@ -817,13 +847,15 @@ export function registerDexCommand(program: Command): void {
       deadline?: string; skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
+      const token0Resolved = resolveTokenIdentifier(token0, opts);
+      const token1Resolved = resolveTokenIdentifier(token1, opts);
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
       const slippageBps = parseSlippage(options.slippage ?? opts.slippage);
 
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
-      const pairAddress = await resolvePairAddress(factorySails, token0, token1);
+      const pairAddress = await resolvePairAddress(factorySails, token0Resolved.address, token1Resolved.address);
       const pairSails = await loadPairSails(api, pairAddress, {});
 
       // Get canonical token order from the pair
@@ -837,7 +869,7 @@ export function registerDexCommand(program: Command): void {
       const units = options.units ?? opts.units;
 
       // Determine which user argument maps to which pair token
-      const token0Hex = addressToHex(token0).toLowerCase();
+      const token0Hex = token0Resolved.address.toLowerCase();
       let amountA: bigint;
       let amountB: bigint;
 
@@ -892,15 +924,20 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'AddLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'AddLiquidity', [
         amountA, amountB, amountAMin, amountBMin, deadline,
-      ], account, undefined, options.voucher, pairAddress);
+      ], account, {
+        token0: pairToken0,
+        ...tokenMetaForAddress(pairToken0, [token0Resolved, token1Resolved], 'token0'),
+        token1: pairToken1,
+        ...tokenMetaForAddress(pairToken1, [token0Resolved, token1Resolved], 'token1'),
+      }, options.voucher, pairAddress);
     });
 
   // ── dex remove-liquidity ──────────────────────────────────────────────
   dex
     .command('remove-liquidity')
     .description('Remove liquidity from a trading pair')
-    .argument('<token0>', 'first token address (0x...)')
-    .argument('<token1>', 'second token address (0x...)')
+    .argument('<token0>', 'first token address (0x...) or built-in token alias')
+    .argument('<token1>', 'second token address (0x...) or built-in token alias')
     .argument('<liquidity>', 'LP token amount to burn')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
@@ -914,13 +951,15 @@ export function registerDexCommand(program: Command): void {
       skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
+      const token0Resolved = resolveTokenIdentifier(token0, opts);
+      const token1Resolved = resolveTokenIdentifier(token1, opts);
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
       const slippageBps = parseSlippage(options.slippage ?? opts.slippage);
 
       const factoryAddress = resolveFactoryAddress({ factory: options.factory ?? opts.factory });
       const factorySails = await loadFactorySails(api, factoryAddress, { idl: options.idl ?? opts.idl });
-      const pairAddress = await resolvePairAddress(factorySails, token0, token1);
+      const pairAddress = await resolvePairAddress(factorySails, token0Resolved.address, token1Resolved.address);
       const pairSails = await loadPairSails(api, pairAddress, {});
 
       // Resolve LP token amount (the pair itself is the LP token)
@@ -949,6 +988,11 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'RemoveLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'RemoveLiquidity', [
         lpAmount, amountAMin, amountBMin, deadline,
-      ], account, undefined, options.voucher, pairAddress);
+      ], account, {
+        token0: token0Resolved.address,
+        ...tokenResolutionMeta(token0Resolved, 'token0'),
+        token1: token1Resolved.address,
+        ...tokenResolutionMeta(token1Resolved, 'token1'),
+      }, options.voucher, pairAddress);
     });
 }

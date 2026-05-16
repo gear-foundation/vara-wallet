@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Built-in bridged VFT token aliases.** New `token list` / `token resolve` commands expose official Vara bridge token program IDs for mainnet/testnet. Existing `vft` and `dex` token arguments now accept aliases like `usdc`, `wusdc`, `weth`, `wbtc`, `tokenized-vara`, `wvara`, and `wtvara` while preserving raw token program address support.
+
 ## [0.19.0] - 2026-05-16
 
 One theme since 0.18.0: **transient flake stops being the operator's problem**. The 0.17.0 release classified transport-layer failures with `TRANSPORT_ERROR` + `reason` subcodes (PR #59); the 0.19.0 release closes the loop by retrying the reasons that self-clear (`timeout`, `ws_close_abnormal`) before the error ever reaches stdout. Agents that previously wrapped `vara-wallet call` in a custom retry loop (e.g. `gear-foundation/vara-agent-network` PR #37) can drop that scaffolding. Permanent reasons (DNS / TLS / protocol mismatch / connection refused / unreachable) still fail fast so the operator sees them immediately and can act.

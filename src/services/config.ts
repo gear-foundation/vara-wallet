@@ -9,6 +9,12 @@ export interface VaraWalletConfig {
   faucetUrl?: string;
 }
 
+export const NETWORK_MAP: Record<string, string> = {
+  mainnet: 'wss://rpc.vara.network',
+  testnet: 'wss://testnet.vara.network',
+  local: 'ws://localhost:9944',
+};
+
 function getConfigDir(): string {
   return process.env.VARA_WALLET_DIR || path.join(process.env.HOME || '~', '.vara-wallet');
 }
