@@ -12,6 +12,8 @@ export interface VaraWalletConfig {
   varaEthRpc?: string;
   ethereumRpc?: string;
   routerAddress?: `0x${string}`;
+  /** Validator endpoint URLs for the Vara.eth validator pool (Phase 3b). */
+  varaEthValidatorPool?: string[];
 }
 
 function getConfigDir(): string {

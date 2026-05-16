@@ -11,7 +11,9 @@ import { registerVaraEthStateCommand } from './commands/vara-eth-state';
 import { registerVaraEthProgramCommand } from './commands/vara-eth-program';
 import { registerVaraEthMailboxCommand } from './commands/vara-eth-mailbox';
 import { registerVaraEthSubscribeCommand } from './commands/vara-eth-subscribe';
-import { registerVaraEthStubCommands } from './commands/vara-eth-stubs';
+import { registerVaraEthWvaraCommand } from './commands/vara-eth-wvara';
+import { registerVaraEthInheritorCommand } from './commands/vara-eth-inheritor';
+import { registerVaraEthValidatorsCommand } from './commands/vara-eth-validators';
 import { resolveVaraEthNetwork } from './chains/vara-eth/networks';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
@@ -146,7 +148,9 @@ registerVaraEthStateCommand(program);
 registerVaraEthProgramCommand(program);
 registerVaraEthMailboxCommand(program);
 registerVaraEthSubscribeCommand(program);
-registerVaraEthStubCommands(program);
+registerVaraEthWvaraCommand(program);
+registerVaraEthInheritorCommand(program);
+registerVaraEthValidatorsCommand(program);
 
 // Subscribe commands register their own signal handler with `prependOnceListener`
 // so it runs before this catch-all and tears down the subscription cleanly.
