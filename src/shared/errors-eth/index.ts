@@ -23,6 +23,20 @@ export class WrongPassphraseError extends CliError {
 }
 
 /**
+ * Raised when a `--network` preset for Vara.eth is not yet deployed and
+ * the user must wait for an address announcement.
+ */
+export class NetworkNotDeployedError extends CliError {
+  constructor(network: string) {
+    super(
+      `Vara.eth network "${network}" is not deployed yet. Track deployment status at https://github.com/gear-tech/gear (or wait for an address announcement).`,
+      'NETWORK_NOT_DEPLOYED',
+      { chain: 'vara-eth', network },
+    );
+  }
+}
+
+/**
  * Raised by commands stubbed for a future phase. The CLI accepts the command
  * name but errors out with a clear message instead of crashing at runtime.
  */

@@ -32,10 +32,12 @@ interface EthexeApiOptions {
   varaEthRpc?: string;
   ethereumRpc?: string;
   routerAddress?: Address;
+  /** Resolved Vara.eth network preset (from --network flag, lowest precedence). */
+  networkPreset?: { varaEthRpc: string; ethereumRpc: string; routerAddress: `0x${string}` | null };
 }
 
 /**
- * Resolves the Vara.eth endpoint stack from explicit options → env vars → config.
+ * Resolves the Vara.eth endpoint stack from explicit options → env vars → config → network preset.
  *
  * Required: `varaEthRpc` (WS), `ethereumRpc` (WS), `routerAddress` (0x-hex).
  * Throws {@link CliError} with `MISSING_ETHEXE_CONFIG` if any are missing.
@@ -46,9 +48,20 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
   routerAddress: Address;
 } {
   const config = readConfig();
-  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc;
-  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc;
-  const routerAddress = options.routerAddress ?? (process.env.VARA_ETH_ROUTER as Address | undefined) ?? config.routerAddress;
+  const preset = options.networkPreset;
+  // VARA_ETH_NETWORK_PRESET_* are set by app.ts preAction when --network is used with --chain vara-eth.
+  // They act as lowest-priority fallback below explicit options, env vars, and config.
+  const presetVaraEthRpc = preset?.varaEthRpc ?? process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC;
+  const presetEthereumRpc = preset?.ethereumRpc ?? process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC;
+  const presetRouter = preset?.routerAddress ?? (process.env.VARA_ETH_NETWORK_PRESET_ROUTER as Address | undefined);
+
+  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? presetVaraEthRpc;
+  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? presetEthereumRpc;
+  const routerAddress =
+    options.routerAddress ??
+    (process.env.VARA_ETH_ROUTER as Address | undefined) ??
+    config.routerAddress ??
+    presetRouter;
 
   if (!varaEthRpc || !ethereumRpc || !routerAddress) {
     const missing: string[] = [];

@@ -12,6 +12,7 @@ import { registerVaraEthProgramCommand } from './commands/vara-eth-program';
 import { registerVaraEthMailboxCommand } from './commands/vara-eth-mailbox';
 import { registerVaraEthSubscribeCommand } from './commands/vara-eth-subscribe';
 import { registerVaraEthStubCommands } from './commands/vara-eth-stubs';
+import { resolveVaraEthNetwork } from './chains/vara-eth/networks';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
 import { registerBalanceCommand } from './commands/balance';
@@ -76,17 +77,37 @@ program
       process.env.VARA_LIGHT = '1';
     }
     if (opts.network) {
-      if (opts.ws) {
-        throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
+      const chain = opts.chain ?? 'vara';
+      if (chain === 'vara-eth') {
+        // Vara.eth path — resolve against the Vara.eth network registry.
+        if (opts.varaEthRpc) {
+          throw new CliError('Cannot use both --network and --vara-eth-rpc', 'CONFLICTING_OPTIONS');
+        }
+        if (opts.ethereumRpc) {
+          throw new CliError('Cannot use both --network and --ethereum-rpc', 'CONFLICTING_OPTIONS');
+        }
+        // resolveVaraEthNetwork throws NetworkNotDeployedError or CliError on bad input.
+        const preset = resolveVaraEthNetwork(opts.network);
+        // Stash the preset in env vars for resolveEthexeConfig to pick up (lowest precedence).
+        process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = preset.varaEthRpc;
+        process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = preset.ethereumRpc;
+        if (preset.routerAddress) {
+          process.env.VARA_ETH_NETWORK_PRESET_ROUTER = preset.routerAddress;
+        }
+      } else {
+        // Substrate / Vara path — existing behaviour.
+        if (opts.ws) {
+          throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
+        }
+        const url = NETWORK_MAP[opts.network];
+        if (!url) {
+          throw new CliError(
+            `Unknown network "${opts.network}". Valid: ${Object.keys(NETWORK_MAP).join(', ')}`,
+            'INVALID_NETWORK',
+          );
+        }
+        process.env.VARA_WS = url;
       }
-      const url = NETWORK_MAP[opts.network];
-      if (!url) {
-        throw new CliError(
-          `Unknown network "${opts.network}". Valid: ${Object.keys(NETWORK_MAP).join(', ')}`,
-          'INVALID_NETWORK',
-        );
-      }
-      process.env.VARA_WS = url;
     }
   });
 
