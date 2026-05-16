@@ -19,6 +19,7 @@
     "test": "jest",
     "test:smoke": "npm run build && node scripts/smoke.mjs",
     "clean": "rm -rf dist",
+    "dev:link:vara-eth": "node scripts/dev-link-vara-eth.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
