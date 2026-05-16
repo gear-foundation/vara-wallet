@@ -10,7 +10,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "rm -rf dist && node scripts/build.mjs",
