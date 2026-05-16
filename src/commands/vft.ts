@@ -243,6 +243,10 @@ function resolveVftToken(input: string, opts: TokenResolveOptions): ResolvedToke
   return resolveTokenIdentifier(input, opts);
 }
 
+function vftRegistryMeta(token: ResolvedToken): Record<string, unknown> {
+  return tokenResolutionMeta(token, 'registry');
+}
+
 export function registerVftCommand(program: Command): void {
   const vft = program.command('vft').description('VFT (fungible token) operations');
 
@@ -291,8 +295,8 @@ export function registerVftCommand(program: Command): void {
       const dec = decimals !== null ? Number(decimals) : null;
 
       output({
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
         name: name !== null ? String(name) : null,
         symbol: symbol !== null ? String(symbol) : null,
         decimals: dec,
@@ -342,8 +346,8 @@ export function registerVftCommand(program: Command): void {
       const { rawStr, humanStr } = _formatVftAmountForTests(decoded, decimals);
 
       output({
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
         account: address,
         balance: humanStr,
         balanceRaw: rawStr,
@@ -384,8 +388,8 @@ export function registerVftCommand(program: Command): void {
       const { rawStr, humanStr } = _formatVftAmountForTests(decoded, decimals);
 
       output({
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
         owner,
         spender,
         allowance: humanStr,
@@ -420,8 +424,8 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Transferring ${resolvedAmount} tokens to ${to}`);
       await executeVftTx(api, sails, serviceName, 'Transfer', [to, resolvedAmount], account, options.voucher, token.address, {
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
       });
     });
 
@@ -451,8 +455,8 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Approving ${resolvedAmount} tokens for ${spender}`);
       await executeVftTx(api, sails, serviceName, 'Approve', [spender, resolvedAmount], account, options.voucher, token.address, {
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
       });
     });
 
@@ -483,8 +487,8 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Transferring ${resolvedAmount} tokens from ${from} to ${to}`);
       await executeVftTx(api, sails, serviceName, 'TransferFrom', [from, to, resolvedAmount], account, options.voucher, token.address, {
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
       });
     });
 
@@ -514,8 +518,8 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Minting ${resolvedAmount} tokens to ${to}`);
       await executeVftTx(api, sails, serviceName, 'Mint', [to, resolvedAmount], account, options.voucher, token.address, {
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
       });
     });
 
@@ -545,8 +549,8 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Burning ${resolvedAmount} tokens from ${from}`);
       await executeVftTx(api, sails, serviceName, 'Burn', [from, resolvedAmount], account, options.voucher, token.address, {
+        ...vftRegistryMeta(token),
         tokenProgram: token.address,
-        ...tokenResolutionMeta(token),
       });
     });
 }

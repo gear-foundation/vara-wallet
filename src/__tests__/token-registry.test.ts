@@ -3,6 +3,7 @@ import {
   normalizeTokenAlias,
   resolveTokenIdentifier,
   resolveTokenNetwork,
+  tokenResolutionMeta,
 } from '../services/token-registry';
 
 const MAINNET_WUSDC = '0xd1de816d7dce6439504552686ab333e5b7302b1549763656b30af1f8a5871b6a';
@@ -70,6 +71,15 @@ describe('token registry', () => {
       caught = err;
     }
     expect((caught as { code?: string }).code).toBe('TOKEN_NOT_FOUND');
+  });
+
+  it('can label registry metadata separately from canonical token fields', () => {
+    const resolved = resolveTokenIdentifier('usdc', { network: 'mainnet' });
+    expect(tokenResolutionMeta(resolved, 'registry')).toEqual({
+      registryAlias: 'usdc',
+      registrySymbol: 'WUSDC',
+      registryNetwork: 'mainnet',
+    });
   });
 
   it('lists only the selected network unless all tokens are requested', () => {
