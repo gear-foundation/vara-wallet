@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
-import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
-import { resolveEthexeSigner } from '../services/ethexe/account';
+import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
+import { resolveEthexeSigner } from '../services/vara-eth/account';
 import { asAddress, asHex, parseOptionalBigInt } from '../utils/eth-types';
 import { output } from '../utils/output';
 
@@ -16,8 +16,8 @@ interface SendOptions {
 
 type ReplyOptions = SendOptions;
 
-export function registerEthexeMessageCommand(program: Command): void {
-  const message = program.command('ethexe:message').description('Send messages and replies on the ethexe rail');
+export function registerVaraEthMessageCommand(program: Command): void {
+  const message = program.command('vara-eth:message').description('Send messages and replies on the Vara.eth rail');
 
   message
     .command('send <mirror>')
@@ -25,7 +25,7 @@ export function registerEthexeMessageCommand(program: Command): void {
     .requiredOption('--payload <hex>', '0x-prefixed payload bytes')
     .option('--value <wei>', 'value in wei to attach (default: 0)')
     .option('--via <path>', 'injected (default) or eth (direct Mirror.sendMessage)', 'injected')
-    .option('--account <name>', 'ethexe wallet name')
+    .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .option('--timeout-ms <ms>', 'timeout for injected promise wait (default: server-controlled)')
     .action(async (mirrorArg: string, options: SendOptions) => {
@@ -65,7 +65,7 @@ export function registerEthexeMessageCommand(program: Command): void {
     .description('Reply to a previously received message')
     .requiredOption('--payload <hex>', '0x-prefixed reply payload')
     .option('--value <wei>', 'value to attach')
-    .option('--account <name>', 'ethexe wallet name')
+    .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (mirrorArg: string, msgIdArg: string, options: ReplyOptions) => {
       const mirror = asAddress(mirrorArg, 'mirror');

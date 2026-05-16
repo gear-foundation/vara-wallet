@@ -1,5 +1,5 @@
 /**
- * Wallet-side ethexe errors. These never live in `@vara-eth/api` (the lib stays
+ * Wallet-side Vara.eth errors. These never live in `@vara-eth/api` (the lib stays
  * adapter-shaped) — they wrap CLI-only concerns.
  */
 
@@ -8,7 +8,7 @@ import { CliError } from '../../utils/errors';
 /** Raised when a V3 keystore fails to decrypt (corrupt file, unsupported variant, etc.). */
 export class KeystoreDecryptError extends CliError {
   constructor(walletName: string, reason: string) {
-    super(`Failed to decrypt ethexe keystore "${walletName}": ${reason}`, 'KEYSTORE_DECRYPT_FAILED', {
+    super(`Failed to decrypt Vara.eth keystore "${walletName}": ${reason}`, 'KEYSTORE_DECRYPT_FAILED', {
       walletName,
       reason,
     });
@@ -18,7 +18,7 @@ export class KeystoreDecryptError extends CliError {
 /** Raised when the passphrase doesn't match the keystore MAC. */
 export class WrongPassphraseError extends CliError {
   constructor(walletName: string) {
-    super(`Wrong passphrase for ethexe wallet "${walletName}".`, 'WRONG_PASSPHRASE', { walletName });
+    super(`Wrong passphrase for Vara.eth wallet "${walletName}".`, 'WRONG_PASSPHRASE', { walletName });
   }
 }
 

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import { getEthexeApi } from '../services/ethexe/api';
+import { getEthexeApi } from '../services/vara-eth/api';
 import { asAddress, parseOptionalBigInt } from '../utils/eth-types';
 import { outputNdjson, verbose } from '../utils/output';
 
@@ -21,8 +21,8 @@ function awaitSignalAnd(unsubscribe: () => void): Promise<void> {
   });
 }
 
-export function registerEthexeSubscribeCommand(program: Command): void {
-  const cmd = program.command('ethexe:subscribe').description('Subscribe to ethexe events (NDJSON to stdout)');
+export function registerVaraEthSubscribeCommand(program: Command): void {
+  const cmd = program.command('vara-eth:subscribe').description('Subscribe to Vara.eth events (NDJSON to stdout)');
 
   cmd
     .command('program <mirror>')

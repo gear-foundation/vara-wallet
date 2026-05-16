@@ -1,13 +1,13 @@
 /**
- * `ethexe:program deploy` — upload WASM and create a program.
- * `ethexe:program top-up`  — top up a program's executable balance.
+ * `vara-eth:program deploy` — upload WASM and create a program.
+ * `vara-eth:program top-up`  — top up a program's executable balance.
  */
 
 import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
 
-import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
-import { resolveEthexeSigner } from '../services/ethexe/account';
+import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
+import { resolveEthexeSigner } from '../services/vara-eth/account';
 import { asAddress, asHex } from '../utils/eth-types';
 import { output } from '../utils/output';
 
@@ -19,8 +19,8 @@ interface DeployOptions {
   passphrase?: string;
 }
 
-export function registerEthexeProgramCommand(program: Command): void {
-  const cmd = program.command('ethexe:program').description('Upload code and deploy programs on the ethexe rail');
+export function registerVaraEthProgramCommand(program: Command): void {
+  const cmd = program.command('vara-eth:program').description('Upload code and deploy programs on the Vara.eth rail');
 
   cmd
     .command('deploy <wasmPath>')
@@ -28,7 +28,7 @@ export function registerEthexeProgramCommand(program: Command): void {
     .option('--salt <hex>', '32-byte salt for unique program-id derivation')
     .option('--executable-balance <wei>', 'top up executable balance in init')
     .option('--abi-interface <address>', 'ABI interface contract address')
-    .option('--account <name>', 'ethexe wallet name')
+    .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (wasmPath: string, options: DeployOptions) => {
       const code = readFileSync(wasmPath);
@@ -57,7 +57,7 @@ export function registerEthexeProgramCommand(program: Command): void {
     .command('top-up <mirror>')
     .description('Top up the executable balance of a program (sender pays in WVARA)')
     .requiredOption('--amount <wei>', 'amount in WVARA wei')
-    .option('--account <name>', 'ethexe wallet name')
+    .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (mirrorArg: string, options: { amount: string; account?: string; passphrase?: string }) => {
       const mirror = asAddress(mirrorArg, 'mirror');

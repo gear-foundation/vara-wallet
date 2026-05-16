@@ -1,17 +1,17 @@
 import { Command } from 'commander';
 
-import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
-import { resolveEthexeSigner } from '../services/ethexe/account';
+import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
+import { resolveEthexeSigner } from '../services/vara-eth/account';
 import { asAddress, asHex } from '../utils/eth-types';
 import { output } from '../utils/output';
 
-export function registerEthexeMailboxCommand(program: Command): void {
-  const mailbox = program.command('ethexe:mailbox').description('Mailbox operations on the ethexe rail');
+export function registerVaraEthMailboxCommand(program: Command): void {
+  const mailbox = program.command('vara-eth:mailbox').description('Mailbox operations on the Vara.eth rail');
 
   mailbox
     .command('claim <mirror> <claimedId>')
     .description('Claim a value entry from the Mirror mailbox')
-    .option('--account <name>', 'ethexe wallet name')
+    .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (mirrorArg: string, claimedIdArg: string, options: { account?: string; passphrase?: string }) => {
       const mirror = asAddress(mirrorArg, 'mirror');

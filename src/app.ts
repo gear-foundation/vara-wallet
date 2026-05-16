@@ -4,14 +4,14 @@ import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { setOutputOptions, installGlobalErrorHandler, outputError, CliError, enableTiming, markStage, markTotal, fastExit } from './utils';
 import { disconnectApi } from './services/api';
-import { disconnectEthexeApi } from './services/ethexe/api';
-import { registerEthexeWalletCommand } from './commands/ethexe-wallet';
-import { registerEthexeMessageCommand } from './commands/ethexe-message';
-import { registerEthexeStateCommand } from './commands/ethexe-state';
-import { registerEthexeProgramCommand } from './commands/ethexe-program';
-import { registerEthexeMailboxCommand } from './commands/ethexe-mailbox';
-import { registerEthexeSubscribeCommand } from './commands/ethexe-subscribe';
-import { registerEthexeStubCommands } from './commands/ethexe-stubs';
+import { disconnectEthexeApi } from './services/vara-eth/api';
+import { registerVaraEthWalletCommand } from './commands/vara-eth-wallet';
+import { registerVaraEthMessageCommand } from './commands/vara-eth-message';
+import { registerVaraEthStateCommand } from './commands/vara-eth-state';
+import { registerVaraEthProgramCommand } from './commands/vara-eth-program';
+import { registerVaraEthMailboxCommand } from './commands/vara-eth-mailbox';
+import { registerVaraEthSubscribeCommand } from './commands/vara-eth-subscribe';
+import { registerVaraEthStubCommands } from './commands/vara-eth-stubs';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
 import { registerBalanceCommand } from './commands/balance';
@@ -59,7 +59,7 @@ program
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
-  .option('--chain <name>', 'target chain: vara (default, substrate) or ethexe (Vara.eth co-processor on Ethereum)')
+  .option('--chain <name>', 'target chain: vara (default, substrate) or vara-eth (Vara.eth co-processor on Ethereum)')
   .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
   .hook('preAction', () => {
     const opts = program.opts();
@@ -118,14 +118,14 @@ registerInboxCommand(program);
 registerEventsCommand(program);
 registerDexCommand(program);
 
-// Ethexe (Vara.eth co-processor) commands — prefixed `ethexe:`.
-registerEthexeWalletCommand(program);
-registerEthexeMessageCommand(program);
-registerEthexeStateCommand(program);
-registerEthexeProgramCommand(program);
-registerEthexeMailboxCommand(program);
-registerEthexeSubscribeCommand(program);
-registerEthexeStubCommands(program);
+// Vara.eth co-processor commands — prefixed `vara-eth:`.
+registerVaraEthWalletCommand(program);
+registerVaraEthMessageCommand(program);
+registerVaraEthStateCommand(program);
+registerVaraEthProgramCommand(program);
+registerVaraEthMailboxCommand(program);
+registerVaraEthSubscribeCommand(program);
+registerVaraEthStubCommands(program);
 
 // Subscribe commands register their own signal handler with `prependOnceListener`
 // so it runs before this catch-all and tears down the subscription cleanly.

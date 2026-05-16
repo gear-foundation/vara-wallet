@@ -2,16 +2,16 @@
  * Chain dispatch: which rail a command is operating on.
  *
  * `vara` — the substrate chain (default; existing @gear-js/api backend).
- * `ethexe` — the Vara.eth co-processor on Ethereum (new in Phase 3).
+ * `vara-eth` — the Vara.eth co-processor on Ethereum (Phase 3).
  *
  * Precedence: explicit `--chain` > config.defaultChain > 'vara'.
  */
 
 import { CliError } from '../utils/errors';
 
-export type Chain = 'vara' | 'ethexe';
+export type Chain = 'vara' | 'vara-eth';
 
-export const VALID_CHAINS: readonly Chain[] = ['vara', 'ethexe'] as const;
+export const VALID_CHAINS: readonly Chain[] = ['vara', 'vara-eth'] as const;
 
 /**
  * Resolves which chain the current command should target.
@@ -31,4 +31,9 @@ export function resolveChain(explicit?: string, configDefault?: string): Chain {
 
 export function isChain(value: unknown): value is Chain {
   return typeof value === 'string' && (VALID_CHAINS as readonly string[]).includes(value);
+}
+
+/** Human-readable display label for a chain. Used in JSON output's `display` field. */
+export function chainDisplay(chain: Chain): string {
+  return chain === 'vara-eth' ? 'Vara.eth' : 'Vara';
 }

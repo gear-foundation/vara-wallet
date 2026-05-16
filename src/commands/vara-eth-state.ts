@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { Hex } from 'viem';
 
-import { getEthexeApi, getMirrorClient } from '../services/ethexe/api';
+import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
 import { asAddress } from '../utils/eth-types';
 import { output } from '../utils/output';
 
@@ -11,8 +11,8 @@ interface ReadOptions {
   mailbox?: boolean;
 }
 
-export function registerEthexeStateCommand(program: Command): void {
-  const state = program.command('ethexe:state').description('Read program state from the ethexe co-processor');
+export function registerVaraEthStateCommand(program: Command): void {
+  const state = program.command('vara-eth:state').description('Read program state from the Vara.eth co-processor');
 
   state
     .command('read <mirror>')

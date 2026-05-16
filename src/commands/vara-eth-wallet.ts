@@ -47,12 +47,12 @@ function privateKeyHexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-export function registerEthexeWalletCommand(program: Command): void {
-  const wallet = program.command('ethexe:wallet').description('Manage ethexe (V3 Ethereum) keystores');
+export function registerVaraEthWalletCommand(program: Command): void {
+  const wallet = program.command('vara-eth:wallet').description('Manage Vara.eth (V3 Ethereum) keystores');
 
   wallet
     .command('create <name>')
-    .description('Generate a new mnemonic + V3 keystore for ethexe')
+    .description('Generate a new mnemonic + V3 keystore for Vara.eth')
     .option('--passphrase <pass>', 'passphrase to encrypt the keystore')
     .option('--path <hdPath>', `BIP44 path (default: ${DEFAULT_ETH_HD_PATH})`)
     .action(async (name: string, options: CreateOptions) => {
@@ -83,7 +83,7 @@ export function registerEthexeWalletCommand(program: Command): void {
 
   wallet
     .command('import <name>')
-    .description('Import an existing ethexe key from mnemonic or raw private key')
+    .description('Import an existing Vara.eth key from mnemonic or raw private key')
     .option('--mnemonic <phrase>', 'BIP39 mnemonic')
     .option('--private-key <hex>', '32-byte secp256k1 key as 0x-hex')
     .option('--passphrase <pass>', 'passphrase to encrypt the keystore')
@@ -128,12 +128,12 @@ export function registerEthexeWalletCommand(program: Command): void {
 
   wallet
     .command('list')
-    .description('List all ethexe wallets')
+    .description('List all Vara.eth wallets')
     .action(() => {
       migrateVaraWalletSuffix();
       const wallets = listEthexeWallets();
       if (wallets.length === 0) {
-        output({ wallets: [], message: 'No ethexe wallets. Create one with "ethexe:wallet create <name>".' });
+        output({ wallets: [], message: 'No Vara.eth wallets. Create one with "vara-eth:wallet create <name>".' });
         return;
       }
       const rows = wallets.map((name) => {
@@ -145,7 +145,7 @@ export function registerEthexeWalletCommand(program: Command): void {
 
   wallet
     .command('show <name>')
-    .description('Show the address + keystore metadata of an ethexe wallet (no secrets)')
+    .description('Show the address + keystore metadata of a Vara.eth wallet (no secrets)')
     .action((name: string) => {
       const ks = loadEthexeWallet(name);
       output({

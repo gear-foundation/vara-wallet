@@ -1,4 +1,4 @@
-import { resolveChain, isChain } from '../chains/types';
+import { resolveChain, isChain, chainDisplay } from '../chains/types';
 
 describe('resolveChain', () => {
   it('defaults to vara when nothing supplied', () => {
@@ -6,28 +6,40 @@ describe('resolveChain', () => {
   });
 
   it('honors explicit --chain over config default', () => {
-    expect(resolveChain('ethexe', 'vara')).toBe('ethexe');
+    expect(resolveChain('vara-eth', 'vara')).toBe('vara-eth');
   });
 
   it('falls back to config default when no explicit flag', () => {
-    expect(resolveChain(undefined, 'ethexe')).toBe('ethexe');
+    expect(resolveChain(undefined, 'vara-eth')).toBe('vara-eth');
   });
 
   it('throws on unknown chain', () => {
     expect(() => resolveChain('solana')).toThrow(/Unknown chain/i);
   });
+
+  it('rejects the pre-rename ethexe token', () => {
+    expect(() => resolveChain('ethexe')).toThrow(/Unknown chain/i);
+  });
 });
 
 describe('isChain', () => {
-  it('accepts vara and ethexe', () => {
+  it('accepts vara and vara-eth', () => {
     expect(isChain('vara')).toBe(true);
-    expect(isChain('ethexe')).toBe(true);
+    expect(isChain('vara-eth')).toBe(true);
   });
 
   it('rejects everything else', () => {
+    expect(isChain('ethexe')).toBe(false);
     expect(isChain('solana')).toBe(false);
     expect(isChain('')).toBe(false);
     expect(isChain(null)).toBe(false);
     expect(isChain(42)).toBe(false);
+  });
+});
+
+describe('chainDisplay', () => {
+  it('maps each chain to its branded display name', () => {
+    expect(chainDisplay('vara')).toBe('Vara');
+    expect(chainDisplay('vara-eth')).toBe('Vara.eth');
   });
 });

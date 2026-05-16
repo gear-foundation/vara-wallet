@@ -35,7 +35,7 @@ interface EthexeApiOptions {
 }
 
 /**
- * Resolves the ethexe endpoint stack from explicit options → env vars → config.
+ * Resolves the Vara.eth endpoint stack from explicit options → env vars → config.
  *
  * Required: `varaEthRpc` (WS), `ethereumRpc` (WS), `routerAddress` (0x-hex).
  * Throws {@link CliError} with `MISSING_ETHEXE_CONFIG` if any are missing.
@@ -96,7 +96,7 @@ export async function getMirrorClient(address: Address, signer?: ITransactionSig
   return makeMirrorClient({ address, publicClient: api.eth.publicClient, signer });
 }
 
-/** Tears down the cached ethexe connections. Safe to call when nothing is open. */
+/** Tears down the cached Vara.eth connections. Safe to call when nothing is open. */
 export function disconnectEthexeApi(): void {
   if (!cached) return;
   try {

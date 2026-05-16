@@ -1,5 +1,5 @@
 /**
- * Argument validators shared across ethexe commands.
+ * Argument validators shared across Vara.eth commands.
  *
  * Centralises the regex-based checks for 0x-hex strings, 20-byte addresses,
  * and decimal bigints. Each command file used to ship its own copies; this

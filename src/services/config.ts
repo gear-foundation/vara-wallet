@@ -7,8 +7,8 @@ export interface VaraWalletConfig {
   defaultAccount?: string;
   dexFactoryAddress?: string;
   faucetUrl?: string;
-  // Phase 3 (ethexe rail) — optional, falls back to env vars when absent.
-  defaultChain?: 'vara' | 'ethexe';
+  // Phase 3 (Vara.eth rail) — optional, falls back to env vars when absent.
+  defaultChain?: 'vara' | 'vara-eth';
   varaEthRpc?: string;
   ethereumRpc?: string;
   routerAddress?: `0x${string}`;

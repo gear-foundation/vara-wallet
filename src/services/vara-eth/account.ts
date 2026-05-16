@@ -43,10 +43,10 @@ function resolvePassphrase(walletName: string, explicit?: string): string {
 }
 
 /**
- * Resolves an ethexe account → `LocalSigner` ready to be passed into
+ * Resolves an Vara.eth account → `LocalSigner` ready to be passed into
  * {@link EthereumClient.setSigner}.
  *
- * @param publicClient - the viem PublicClient used by the ethexe api stack
+ * @param publicClient - the viem PublicClient used by the Vara.eth api stack
  *                       (signer reuses its transport + chain)
  * @param options - `--account` (wallet name) and `--passphrase` flags
  */
@@ -57,7 +57,7 @@ export async function resolveEthexeSigner(
   const config = readConfig();
   const walletName = options.account ?? config.defaultAccount;
   if (!walletName) {
-    throw new CliError('No ethexe account selected. Use --account <name> or "config set defaultAccount".', 'NO_ACCOUNT');
+    throw new CliError('No Vara.eth account selected. Use --account <name> or "config set defaultAccount".', 'NO_ACCOUNT');
   }
 
   const keystore = loadEthexeWallet(walletName);

@@ -43,14 +43,14 @@ afterEach(() => {
   else process.env.VARA_WALLET_DIR = savedEnv;
 });
 
-describe('ethexe wallet store', () => {
+describe('Vara.eth wallet store', () => {
   it('save → list → load → exists round trip', async () => {
     const key = hexToBytes(ANVIL_0_KEY_HEX);
     const ks = await encryptKeystore(key, 'pw', { scryptParams: TEST_SCRYPT_PARAMS });
     const filePath = saveEthexeWallet('alice', ks);
 
     expect(existsSync(filePath)).toBe(true);
-    expect(filePath).toMatch(/wallets\/alice\.ethexe\.json$/);
+    expect(filePath).toMatch(/wallets\/alice\.vara-eth\.json$/);
     expect(ethexeWalletExists('alice')).toBe(true);
     expect(listEthexeWallets()).toEqual(['alice']);
 
@@ -83,7 +83,7 @@ describe('ethexe wallet store', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
     mkdirSync(walletsDir, { recursive: true });
     writeFileSync(path.join(walletsDir, 'legacy.json'), '{}');
-    writeFileSync(path.join(walletsDir, 'newAlice.ethexe.json'), '{}');
+    writeFileSync(path.join(walletsDir, 'newAlice.vara-eth.json'), '{}');
     writeFileSync(path.join(walletsDir, 'newBob.vara.json'), '{}');
 
     const renames = migrateVaraWalletSuffix();
@@ -93,7 +93,7 @@ describe('ethexe wallet store', () => {
     expect(existsSync(path.join(walletsDir, 'legacy.vara.json'))).toBe(true);
     expect(existsSync(path.join(walletsDir, 'legacy.json'))).toBe(false);
     // already-suffixed files unchanged
-    expect(existsSync(path.join(walletsDir, 'newAlice.ethexe.json'))).toBe(true);
+    expect(existsSync(path.join(walletsDir, 'newAlice.vara-eth.json'))).toBe(true);
     expect(existsSync(path.join(walletsDir, 'newBob.vara.json'))).toBe(true);
   });
 
@@ -105,14 +105,14 @@ describe('ethexe wallet store', () => {
   it('loadEthexeWallet throws on a corrupt file', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
     mkdirSync(walletsDir, { recursive: true });
-    writeFileSync(path.join(walletsDir, 'broken.ethexe.json'), '{not json');
+    writeFileSync(path.join(walletsDir, 'broken.vara-eth.json'), '{not json');
     expect(() => loadEthexeWallet('broken')).toThrow(/corrupted/i);
   });
 
   it('loadEthexeWallet throws on a non-V3 file', () => {
     const walletsDir = path.join(tmpDir, 'wallets');
     mkdirSync(walletsDir, { recursive: true });
-    writeFileSync(path.join(walletsDir, 'wrong.ethexe.json'), JSON.stringify({ version: 1 }));
+    writeFileSync(path.join(walletsDir, 'wrong.vara-eth.json'), JSON.stringify({ version: 1 }));
     expect(() => loadEthexeWallet('wrong')).toThrow(/not a V3 keystore/i);
   });
 });
