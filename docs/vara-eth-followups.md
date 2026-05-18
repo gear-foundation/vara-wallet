@@ -79,7 +79,30 @@ still says "testnet".
 deployment-info commit to avoid bundling a rename into a content
 change.
 
-## 6. ABIs / canonical-quarantine settings exposure
+## 6. `vara-eth:*` subcommands don't honor global `--account` / `--passphrase`
+
+**Where the gap is**: substrate commands read `program.optsWithGlobals()`
+inside their actions (see `src/commands/balance.ts:15`,
+`src/commands/message.ts:76`). The Vara.eth commands skipped this
+pattern — each action's `options` argument is the SUBCOMMAND-local
+opts bag, so global `--account` / `--passphrase` flags don't propagate.
+
+**Smoke-discovered symptom**: passing `--account hoodi-smoke` (in any
+position) had no effect; the resolver always fell back to
+`config.defaultAccount`. Workaround during the Hoodi smoke was to set
+`defaultAccount` in config + use `VARA_PASSPHRASE` env var.
+
+**Fix shape**: every `.action((arg1, arg2, options) => …)` in the
+seven `vara-eth-*.ts` files becomes
+`.action((arg1, arg2, options, cmd) => { const globals =
+cmd.optsWithGlobals(); … })`. Then merge globals over local options
+before calling `resolveEthexeSigner`.
+
+**Blocker / unblock**: not blocking — env-var + config-default
+workaround works. Worth a focused commit since it's mechanical and
+affects every write-side Vara.eth command.
+
+## 7. ABIs / canonical-quarantine settings exposure
 
 **Where the gap is**: the network presets carry RPC + Router + WVARA
 but not the `canonical-quarantine` block depth (mainnet: 8, hoodi: 4).
