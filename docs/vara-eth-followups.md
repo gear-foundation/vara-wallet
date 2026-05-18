@@ -102,7 +102,74 @@ before calling `resolveEthexeSigner`.
 workaround works. Worth a focused commit since it's mechanical and
 affects every write-side Vara.eth command.
 
-## 7. ABIs / canonical-quarantine settings exposure
+## 7. `reply.code` serializes as `"[object Object]"` in JSON output
+
+**Where the gap is**: `vara-eth:message send` JSON output emits
+`"code": "[object Object]"` for the reply code. The lib returns a
+`ReplyCode` discriminated-union object; `.toString()` on it doesn't
+produce a useful string.
+
+**Symptom from Hoodi smoke**:
+
+```json
+{ "reply": { "payload": "0x…", "value": "0", "code": "[object Object]" } }
+```
+
+**Fix shape**: in `src/commands/vara-eth-message.ts`, replace
+`result.reply.code.toString()` with a proper serializer — either
+`JSON.stringify(result.reply.code)` (verbose but lossless) or extract
+the discriminant tag (`Success`, `Error.{Execution, FailedToCreateProgram, …}`)
+into a short string. Apply the same fix anywhere else that outputs
+a ReplyCode.
+
+## 8. Contract reverts surface as `INTERNAL_ERROR`, not `MESSAGE_REVERTED`
+
+**Where the gap is**: when a Mirror `sendMessage` reverts (e.g.
+`InitMessageNotCreatedAndCallerNotInitializer()` from an uninitialized
+Mirror), the wallet output is:
+
+```json
+{ "error": "The contract function 'sendMessage' reverted...", "code": "INTERNAL_ERROR" }
+```
+
+The error message correctly contains the decoded revert reason, but the
+code is generic. The plan called out a `MessageRevertedError` typed
+class in `@vara-eth/api`; that class was either dropped or never
+shipped, and the wallet's `outputError` falls through to generic.
+
+**Fix shape**: either (a) add `MessageRevertedError` upstream and have
+the wallet's error formatter map viem `ContractFunctionRevertedError`
+into it, or (b) wallet-side, add a `MessageRevertedError` in
+`src/shared/errors-eth/` and catch + re-throw with the decoded name.
+
+## 9. Injected path on Hoodi: validator signature doesn't recover
+
+**Where the gap is**: `vara-eth:message send … --via injected` against
+a Hoodi Mirror returns:
+
+```json
+{ "error": "Validator signature did not recover to a valid address.",
+  "code": "INTERNAL_ERROR" }
+```
+
+The L1 path (`--via eth`) on the same Mirror works fine. So the issue
+is either:
+- the validator set the smoke is seeing differs from the one the lib
+  has cached (stale set),
+- or the recovery path in `@vara-eth/api`'s
+  `InjectedTxPromise.validateSignature()` has a bug on Hoodi's
+  canonical-quarantine = 4 environment.
+
+The lib has a `validateSignature: false` opt-out, but the wallet
+doesn't expose it. Should be a flag like `--no-validate-signature`
+for diagnostics.
+
+**Fix shape**: triage upstream — confirm the validator set the lib
+caches is what Hoodi actually rotates to. Add the diagnostic flag
+to the wallet either way; surface the typed `PromiseSignatureInvalidError`
+properly (today it falls through to `INTERNAL_ERROR`).
+
+## 10. ABIs / canonical-quarantine settings exposure
 
 **Where the gap is**: the network presets carry RPC + Router + WVARA
 but not the `canonical-quarantine` block depth (mainnet: 8, hoodi: 4).
