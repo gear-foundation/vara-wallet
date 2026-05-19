@@ -28,7 +28,7 @@
     "@noble/hashes": "^1.6.1",
     "@scure/bip32": "^1.6.0",
     "@scure/bip39": "^1.5.0",
-    "@vara-eth/api": "file:vendor/vara-eth-api-0.5.0-rc.0.tgz",
+    "@vara-eth/api": "file:vendor/vara-eth-api-0.5.0-rc.1.tgz",
     "better-sqlite3": "^11.0.0",
     "kzg-wasm": "1.0.0",
     "smoldot": "https://github.com/ukint-vs/smoldot-gear/releases/download/v2.0.40-gear/smoldot-2.0.40.tgz",

@@ -1,3 +1,5 @@
+import { VaraEthError, MessageRevertedError } from '@vara-eth/api';
+
 import { isVerboseEnabled } from './output';
 
 /**
@@ -83,6 +85,20 @@ export function formatError(error: unknown): { error: string; code: string } & E
       code: transport.code,
     };
     return transport.meta ? { ...transport.meta, ...base } : base;
+  }
+
+  // Typed errors from @vara-eth/api carry stable string codes
+  // (`MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, …); surface them directly so
+  // wallet consumers don't have to regex on .message.
+  if (error instanceof VaraEthError) {
+    const base = {
+      error: sanitizeErrorMessage(error.message),
+      code: error.code,
+    };
+    if (error instanceof MessageRevertedError) {
+      return { reason: error.reason, functionName: error.functionName, ...base };
+    }
+    return base;
   }
 
   if (error instanceof Error) {

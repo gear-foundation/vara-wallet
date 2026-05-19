@@ -22,6 +22,8 @@ interface SendOptions {
   account?: string;
   passphrase?: string;
   timeoutMs?: string;
+  /** For --via injected: skip the validator-signature check on the reply (diagnostics only). */
+  noValidateSignature?: boolean;
   /** Skip the send; look up a previously-recorded promise outcome by txHash. */
   resume?: string;
 }
@@ -40,6 +42,10 @@ export function registerVaraEthMessageCommand(program: Command): void {
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .option('--timeout-ms <ms>', 'timeout for injected promise wait (default: server-controlled)')
+    .option(
+      '--no-validate-signature',
+      'skip validator-signature check on injected-path replies (diagnostics only; accepts any validator claim)',
+    )
     .option(
       '--resume <txHash>',
       'look up a previously-submitted injected-tx outcome by txHash (no new submit). Only finds terminal-state cached promises; reattaching to in-flight pending promises requires lib-level support not yet shipped.',
@@ -69,13 +75,18 @@ export function registerVaraEthMessageCommand(program: Command): void {
       api.eth.setSigner(signer);
 
       const timeoutMs = opts.timeoutMs ? Number(opts.timeoutMs) : undefined;
+      // Commander maps `--no-validate-signature` to `validateSignature: false`.
+      // The action sees it under either key depending on commander version;
+      // we accept both and default to true (validate).
+      const rawValidate = (opts as { validateSignature?: boolean }).validateSignature;
+      const validateSignature = opts.noValidateSignature === true ? false : rawValidate !== false;
       const persist = via === 'injected';
       if (persist) initPromiseStore();
       const signerAddress = persist ? await signer.getAddress() : '0x';
 
       let result;
       try {
-        result = await api.programs.sendAndWait(mirror, payload, { value, via, timeoutMs });
+        result = await api.programs.sendAndWait(mirror, payload, { value, via, timeoutMs, validateSignature });
       } catch (err) {
         // Best-effort: typed errors that carry a txHash get a `failed` row so
         // the user can `--resume` to inspect it later. Errors without a
