@@ -368,3 +368,46 @@ operational-maturity gap including live-resume of interrupted promises.
 The integration is **demonstrably ready to land** behind a feature flag
 or as a soft launch for dev onboarding, while Milestones B+C run in
 parallel.
+
+---
+
+## 8. Milestone progress (2026-05-19)
+
+### Milestone A — shipped
+
+- **`7ee774b` (PR-A1)** — global `--account` / `--passphrase` propagate via
+  `cmd.optsWithGlobals()` across 9 vara-eth-*.ts files. Hoodi smoke
+  workaround (`VARA_PASSPHRASE` env + config override) no longer required.
+- **`e0603d3` (PR-A2)** — `reply.code` JSON output now emits
+  `{ tag, raw, reason }` (e.g. `tag: 'Success.Auto'`) instead of
+  `"[object Object]"`. Lossless + agent-readable.
+
+Tests: 770 → 787 (added 14 unit tests across opts-globals + reply-code-serializer).
+Typecheck + esbuild clean. Closes follow-ups #6 and #7.
+
+### Milestone B — shipped (code) + open (verification)
+
+Shipped:
+- **lib `7f944015` (PR-B1)** — `MessageRevertedError` in `@vara-eth/api@0.5.0-rc.1`.
+  Wraps `MirrorClient.sendMessage` + `sendReply` simulation calls; decoded
+  revert selector surfaces as `reason` (e.g.
+  `'InitMessageNotCreatedAndCallerNotInitializer()'`).
+- **wallet `720d639` (PR-B2)** — `formatError` recognizes `VaraEthError`,
+  surfaces typed code (`MESSAGE_REVERTED`) + `reason` + `functionName` to
+  JSON output. Vendored tarball bumped.
+- **wallet `720d639` (PR-B5 wallet-side)** — `--no-validate-signature`
+  flag on `vara-eth:message send` for Hoodi injected-path diagnostics.
+
+Tests: 787 wallet + 55 lib unit suite green.
+
+Open (gated on environment access — see §5):
+- **PR-B3** mainnet write smoke — stakeholder approval for ~$0.01 mainnet
+  ETH allocation.
+- **PR-B4** Hoodi `program deploy` smoke — Hoodi WVARA acquisition path
+  unknown.
+- **PR-B5 (lib-side investigation)** — validator set / quarantine-depth
+  root cause for injected-path signature recovery on Hoodi. Half-day
+  time-box once an ethexe-ops contact is available.
+
+Milestone A+B code is **production-ready and merged on branch**. The three
+open items are verification + investigation, not implementation.
