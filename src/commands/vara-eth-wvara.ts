@@ -56,10 +56,7 @@ export function registerVaraEthWvaraCommand(program: Command): void {
       const amount = parseBigIntArg(amountArg, 'amount');
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const from = await signer.getAddress();
@@ -87,10 +84,7 @@ export function registerVaraEthWvaraCommand(program: Command): void {
       const amount = parseBigIntArg(amountArg, 'amount');
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const owner = await signer.getAddress();
@@ -122,10 +116,7 @@ export function registerVaraEthWvaraCommand(program: Command): void {
         : BigInt(Math.floor(Date.now() / 1000) + 300);
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const permitData = await api.eth.wvara.prepareAndSignPermitData(spender, amount, deadlineSeconds);

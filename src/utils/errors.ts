@@ -1,6 +1,26 @@
-import { VaraEthError, MessageRevertedError } from '@vara-eth/api';
-
 import { isVerboseEnabled } from './output';
+
+/**
+ * Duck-types a @vara-eth/api typed error without importing the lib at module
+ * init time. The lib's `VaraEthError` base class sets `code` + `name` on every
+ * subclass; we only ever surface those two plus `reason`/`functionName` for
+ * `MessageRevertedError`, so an `instanceof` import (and the viem / kzg-wasm
+ * graph it drags in) buys nothing here.
+ */
+function asVaraEthError(error: unknown): { name: string; message: string; code: string } | null {
+  if (error === null || typeof error !== 'object') return null;
+  const candidate = error as { name?: unknown; message?: unknown; code?: unknown };
+  if (typeof candidate.code !== 'string' || typeof candidate.name !== 'string') return null;
+  if (typeof candidate.message !== 'string') return null;
+  if (!candidate.name.endsWith('Error') || candidate.name === 'CliError' || candidate.name === 'Error') return null;
+  // Stable VARA_ETH codes are SCREAMING_SNAKE; CliError codes are too, so we
+  // additionally require the constructor name to come from the lib taxonomy.
+  return /VaraEthError|RevertedError|TimeoutError|ForkRequiredError|StaleError|InvalidError|ExpiredError|UnderpricedError|MismatchError|NoSailsIdlError|ConnectionError/.test(
+    candidate.name,
+  )
+    ? (candidate as { name: string; message: string; code: string })
+    : null;
+}
 
 /**
  * Extract a string message from anything that might be thrown. Preferred
@@ -89,14 +109,21 @@ export function formatError(error: unknown): { error: string; code: string } & E
 
   // Typed errors from @vara-eth/api carry stable string codes
   // (`MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, …); surface them directly so
-  // wallet consumers don't have to regex on .message.
-  if (error instanceof VaraEthError) {
+  // wallet consumers don't have to regex on .message. Duck-typed to avoid
+  // pulling the lib's full export graph into startup just for instanceof.
+  const varaEth = asVaraEthError(error);
+  if (varaEth) {
     const base = {
-      error: sanitizeErrorMessage(error.message),
-      code: error.code,
+      error: sanitizeErrorMessage(varaEth.message),
+      code: varaEth.code,
     };
-    if (error instanceof MessageRevertedError) {
-      return { reason: error.reason, functionName: error.functionName, ...base };
+    if (varaEth.code === 'MESSAGE_REVERTED') {
+      const extra = error as { reason?: unknown; functionName?: unknown };
+      return {
+        ...(typeof extra.reason === 'string' ? { reason: extra.reason } : {}),
+        ...(typeof extra.functionName === 'string' ? { functionName: extra.functionName } : {}),
+        ...base,
+      };
     }
     return base;
   }

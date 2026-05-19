@@ -38,6 +38,11 @@ export class MessageRevertedError extends VaraEthError {
     this.functionName = functionName;
   }
 }
+export class NoSailsIdlError extends VaraEthError {
+  constructor() {
+    super(VaraEthErrorCode.NoSailsIdl, 'WASM has no `sails_idl` custom section.');
+  }
+}
 export class LocalSigner {}
 export const createVaraEthApi = async () => ({});
 export class WsVaraEthProvider {

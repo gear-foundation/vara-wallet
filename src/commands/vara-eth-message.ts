@@ -22,8 +22,8 @@ interface SendOptions {
   account?: string;
   passphrase?: string;
   timeoutMs?: string;
-  /** For --via injected: skip the validator-signature check on the reply (diagnostics only). */
-  noValidateSignature?: boolean;
+  /** Commander maps `--no-validate-signature` → `validateSignature: false`. Defaults to true. */
+  validateSignature?: boolean;
   /** Skip the send; look up a previously-recorded promise outcome by txHash. */
   resume?: string;
 }
@@ -68,18 +68,11 @@ export function registerVaraEthMessageCommand(program: Command): void {
       const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const timeoutMs = opts.timeoutMs ? Number(opts.timeoutMs) : undefined;
-      // Commander maps `--no-validate-signature` to `validateSignature: false`.
-      // The action sees it under either key depending on commander version;
-      // we accept both and default to true (validate).
-      const rawValidate = (opts as { validateSignature?: boolean }).validateSignature;
-      const validateSignature = opts.noValidateSignature === true ? false : rawValidate !== false;
+      const validateSignature = opts.validateSignature !== false;
       const persist = via === 'injected';
       if (persist) initPromiseStore();
       const signerAddress = persist ? await signer.getAddress() : '0x';
@@ -159,10 +152,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
       const value = parseOptionalBigInt(opts.value, '--value');
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const mirrorClient = await getMirrorClient(mirror, signer);

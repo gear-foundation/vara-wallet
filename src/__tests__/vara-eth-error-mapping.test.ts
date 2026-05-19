@@ -6,7 +6,7 @@
  * can branch on the typed code rather than regex on the message.
  */
 
-import { MessageRevertedError, VaraEthError, VaraEthErrorCode } from '@vara-eth/api';
+import { MessageRevertedError, NoSailsIdlError, VaraEthErrorCode } from '@vara-eth/api';
 import { formatError } from '../utils/errors';
 
 describe('formatError on VaraEthError', () => {
@@ -20,14 +20,9 @@ describe('formatError on VaraEthError', () => {
   });
 
   it('surfaces other VaraEthError subclasses with their .code', () => {
-    class FooError extends VaraEthError {
-      constructor() {
-        super(VaraEthErrorCode.RpcConnectionFailed, 'something');
-      }
-    }
-    const out = formatError(new FooError());
-    expect(out.code).toBe(VaraEthErrorCode.RpcConnectionFailed);
-    expect(out.error).toBe('something');
+    const out = formatError(new NoSailsIdlError());
+    expect(out.code).toBe(VaraEthErrorCode.NoSailsIdl);
+    expect(out.error).toContain('sails_idl');
   });
 
   it('falls through to generic INTERNAL_ERROR for non-VaraEth Error instances', () => {

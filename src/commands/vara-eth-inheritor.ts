@@ -47,10 +47,7 @@ export function registerVaraEthInheritorCommand(program: Command): void {
       const mirrorAddress = asAddress(mirrorArg, 'mirror');
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: opts.account,
-        passphrase: opts.passphrase,
-      });
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
 
       // Read the mirror state — check inheritor is set.
       const mirrorClient = await getMirrorClient(mirrorAddress, signer);
