@@ -11,8 +11,8 @@ import {
   generateMnemonic,
   isValidMnemonic,
   listEthexeWallets,
+  listLegacyVaraWalletNames,
   loadEthexeWallet,
-  migrateVaraWalletSuffix,
   saveEthexeWallet,
 } from '../shared/keyring-eth';
 import { CliError } from '../utils/errors';
@@ -61,7 +61,6 @@ export function registerVaraEthWalletCommand(program: Command): void {
         throw new CliError(`Ethexe wallet "${name}" already exists`, 'WALLET_EXISTS', { name });
       }
       const passphrase = requirePassphrase(opts);
-      migrateVaraWalletSuffix();
 
       const mnemonic = generateMnemonic();
       const path = opts.path ?? DEFAULT_ETH_HD_PATH;
@@ -101,7 +100,6 @@ export function registerVaraEthWalletCommand(program: Command): void {
         throw new CliError('--mnemonic and --private-key are mutually exclusive.', 'CONFLICTING_KEY_SOURCES');
       }
       const passphrase = requirePassphrase(opts);
-      migrateVaraWalletSuffix();
 
       let privateKey: Uint8Array;
       let hdPath: string | undefined;
@@ -132,17 +130,21 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .command('list')
     .description('List all Vara.eth wallets')
     .action(() => {
-      migrateVaraWalletSuffix();
       const wallets = listEthexeWallets();
+      const legacyWallets = listLegacyVaraWalletNames();
       if (wallets.length === 0) {
-        output({ wallets: [], message: 'No Vara.eth wallets. Create one with "vara-eth:wallet create <name>".' });
+        output({
+          wallets: [],
+          legacyWallets,
+          message: 'No Vara.eth wallets. Create one with "vara-eth:wallet create <name>".',
+        });
         return;
       }
       const rows = wallets.map((name) => {
         const ks = loadEthexeWallet(name);
         return { name, address: `0x${ks.address}`, kdf: ks.crypto.kdf, n: ks.crypto.kdfparams.n };
       });
-      output({ wallets: rows });
+      output({ wallets: rows, legacyWallets });
     });
 
   wallet

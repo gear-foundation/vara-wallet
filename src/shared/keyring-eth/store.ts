@@ -7,7 +7,7 @@
  * and the keystore file is chmod 0600.
  */
 
-import { readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { getConfigDir } from '../../services/config';
@@ -97,23 +97,14 @@ export function ethexeWalletExists(name: string): boolean {
   }
 }
 
-// Memoise within a single process — every vara-eth:* command calls this on entry,
-// and after the first run there's nothing left to do. Avoids a per-call readdir.
-let migratedThisProcess = false;
-
 /**
- * One-time migration: renames pre-existing `<name>.json` (the original
- * suffix-less substrate filename) to `<name>.vara.json` so the chain suffix
- * becomes explicit alongside `<name>.vara-eth.json` files. Skips files that
- * are already correctly suffixed. Idempotent within a process.
+ * Lists legacy substrate-style wallet filenames that still live in the shared
+ * wallets directory.
  *
- * Returns the list of renames performed (empty if nothing to do or already
- * migrated this process).
+ * Vara.eth commands no longer mutate these files. The helper exists for
+ * diagnostics and manual migration tooling only.
  */
-export function migrateVaraWalletSuffix(): Array<{ from: string; to: string }> {
-  if (migratedThisProcess) return [];
-  migratedThisProcess = true;
-
+export function listLegacyVaraWalletNames(): string[] {
   const dir = getWalletsDir();
   let entries: string[];
   try {
@@ -123,27 +114,7 @@ export function migrateVaraWalletSuffix(): Array<{ from: string; to: string }> {
     throw err;
   }
 
-  const renames: Array<{ from: string; to: string }> = [];
-  for (const file of entries) {
-    if (!file.endsWith('.json')) continue;
-    if (file.endsWith('.vara.json') || file.endsWith(VARA_ETH_SUFFIX)) continue;
-    if (file.startsWith('.')) continue;
-    const from = path.join(dir, file);
-    const to = path.join(dir, file.replace(/\.json$/, '.vara.json'));
-    // Don't clobber a target that already exists from a partial earlier run.
-    try {
-      statSync(to);
-      continue;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
-    renameSync(from, to);
-    renames.push({ from, to });
-  }
-  return renames;
-}
-
-/** Test-only — reset the per-process migration flag between tests. */
-export function __resetMigrationFlagForTests(): void {
-  migratedThisProcess = false;
+  return entries
+    .filter((file) => file.endsWith('.json') && !file.endsWith('.vara.json') && !file.endsWith(VARA_ETH_SUFFIX) && !file.startsWith('.'))
+    .map((file) => file.replace(/\.json$/, ''));
 }

@@ -6,6 +6,9 @@
  * file when no explicit endpoint is supplied.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
 import { createPublicClient, webSocket, type Address, type PublicClient } from 'viem';
 import {
   createVaraEthApi,
@@ -36,6 +39,94 @@ interface EthexeApiOptions {
   networkPreset?: { varaEthRpc: string; ethereumRpc: string; routerAddress: `0x${string}` | null };
 }
 
+const BROADCAST_CANDIDATE_NAMES = new Set(['run-latest.json', 'broadcast.log.json']);
+const BROADCAST_SKIP_DIRS = new Set(['.git', '.claude', '.wolf', 'build', 'dist', 'node_modules', 'target']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function asAddress(value: unknown): Address | undefined {
+  return typeof value === 'string' && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as Address) : undefined;
+}
+
+function findBroadcastArtifacts(root = process.cwd()): string[] {
+  const artifacts: string[] = [];
+  const stack = [root];
+
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: Array<import('node:fs').Dirent>;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!BROADCAST_SKIP_DIRS.has(entry.name)) {
+          stack.push(fullPath);
+        }
+        continue;
+      }
+      if (BROADCAST_CANDIDATE_NAMES.has(entry.name) && fullPath.includes(`${path.sep}broadcast${path.sep}`)) {
+        artifacts.push(fullPath);
+      }
+    }
+  }
+
+  return artifacts.sort((a, b) => a.localeCompare(b));
+}
+
+function discoverLocalRouterAddress(root = process.cwd()): Address | undefined {
+  for (const artifactPath of findBroadcastArtifacts(root)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed)) continue;
+
+    const receiptByHash = new Map<string, Address>();
+    if (Array.isArray(parsed.receipts)) {
+      for (const receipt of parsed.receipts) {
+        if (!isRecord(receipt)) continue;
+        const txHash = typeof receipt.transactionHash === 'string' ? receipt.transactionHash.toLowerCase() : undefined;
+        const contractAddress = asAddress(receipt.contractAddress);
+        if (txHash && contractAddress) {
+          receiptByHash.set(txHash, contractAddress);
+        }
+      }
+    }
+
+    if (!Array.isArray(parsed.transactions)) continue;
+    const fallback: Address[] = [];
+    for (const tx of parsed.transactions) {
+      if (!isRecord(tx)) continue;
+      const contractName = typeof tx.contractName === 'string' ? tx.contractName : '';
+      const txAddress = asAddress(tx.contractAddress);
+      const txHash = typeof tx.hash === 'string' ? tx.hash.toLowerCase() : undefined;
+      const receiptAddress = txHash ? receiptByHash.get(txHash) : undefined;
+      const address = txAddress ?? receiptAddress;
+      if (!address) continue;
+
+      if (/router/i.test(contractName)) {
+        return address;
+      }
+      fallback.push(address);
+    }
+
+    if (fallback.length === 1) {
+      return fallback[0];
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Resolves the Vara.eth endpoint stack from explicit options → env vars → config → network preset.
  *
@@ -57,11 +148,15 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
 
   const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? presetVaraEthRpc;
   const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? presetEthereumRpc;
-  const routerAddress =
+  let routerAddress =
     options.routerAddress ??
     (process.env.VARA_ETH_ROUTER as Address | undefined) ??
     config.routerAddress ??
     presetRouter;
+
+  if (!routerAddress && preset?.routerAddress === null) {
+    routerAddress = discoverLocalRouterAddress();
+  }
 
   if (!varaEthRpc || !ethereumRpc || !routerAddress) {
     const missing: string[] = [];

@@ -15,6 +15,8 @@ import { registerVaraEthWvaraCommand } from './commands/vara-eth-wvara';
 import { registerVaraEthInheritorCommand } from './commands/vara-eth-inheritor';
 import { registerVaraEthValidatorsCommand } from './commands/vara-eth-validators';
 import { resolveVaraEthNetwork } from './chains/vara-eth/networks';
+import { resolveChain } from './chains/types';
+import { readConfig } from './services/config';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
 import { registerBalanceCommand } from './commands/balance';
@@ -80,8 +82,9 @@ program
     if (opts.light) {
       process.env.VARA_LIGHT = '1';
     }
+    const config = readConfig();
+    const chain = resolveChain(opts.chain, config.defaultChain);
     if (opts.network) {
-      const chain = opts.chain ?? 'vara';
       if (chain === 'vara-eth') {
         // Vara.eth path — resolve against the Vara.eth network registry.
         if (opts.varaEthRpc) {

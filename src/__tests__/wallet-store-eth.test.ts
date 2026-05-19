@@ -12,11 +12,10 @@ import os from 'node:os';
 
 import { encryptKeystore, TEST_SCRYPT_PARAMS } from '../shared/keyring-eth/keystore';
 import {
-  __resetMigrationFlagForTests,
   ethexeWalletExists,
   listEthexeWallets,
+  listLegacyVaraWalletNames,
   loadEthexeWallet,
-  migrateVaraWalletSuffix,
   saveEthexeWallet,
 } from '../shared/keyring-eth/store';
 
@@ -34,7 +33,6 @@ const savedEnv = process.env.VARA_WALLET_DIR;
 beforeEach(() => {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vw-eth-store-'));
   process.env.VARA_WALLET_DIR = tmpDir;
-  __resetMigrationFlagForTests();
 });
 
 afterEach(() => {
@@ -79,27 +77,20 @@ describe('Vara.eth wallet store', () => {
     expect(() => ethexeWalletExists('foo bar')).toThrow(/Invalid wallet name/i);
   });
 
-  it('migrateVaraWalletSuffix renames legacy <name>.json → <name>.vara.json', () => {
+  it('lists legacy substrate wallets without mutating them', async () => {
     const walletsDir = path.join(tmpDir, 'wallets');
     mkdirSync(walletsDir, { recursive: true });
     writeFileSync(path.join(walletsDir, 'legacy.json'), '{}');
-    writeFileSync(path.join(walletsDir, 'newAlice.vara-eth.json'), '{}');
     writeFileSync(path.join(walletsDir, 'newBob.vara.json'), '{}');
 
-    const renames = migrateVaraWalletSuffix();
-    expect(renames).toEqual([
-      { from: path.join(walletsDir, 'legacy.json'), to: path.join(walletsDir, 'legacy.vara.json') },
-    ]);
-    expect(existsSync(path.join(walletsDir, 'legacy.vara.json'))).toBe(true);
-    expect(existsSync(path.join(walletsDir, 'legacy.json'))).toBe(false);
-    // already-suffixed files unchanged
-    expect(existsSync(path.join(walletsDir, 'newAlice.vara-eth.json'))).toBe(true);
-    expect(existsSync(path.join(walletsDir, 'newBob.vara.json'))).toBe(true);
-  });
+    const key = hexToBytes(ANVIL_0_KEY_HEX);
+    const ks = await encryptKeystore(key, 'pw', { scryptParams: TEST_SCRYPT_PARAMS });
+    saveEthexeWallet('alice', ks);
 
-  it('migrateVaraWalletSuffix is idempotent', () => {
-    expect(migrateVaraWalletSuffix()).toEqual([]);
-    expect(migrateVaraWalletSuffix()).toEqual([]);
+    expect(existsSync(path.join(walletsDir, 'legacy.json'))).toBe(true);
+    expect(existsSync(path.join(walletsDir, 'legacy.vara.json'))).toBe(false);
+    expect(existsSync(path.join(walletsDir, 'newBob.vara.json'))).toBe(true);
+    expect(listLegacyVaraWalletNames()).toEqual(['legacy']);
   });
 
   it('loadEthexeWallet throws on a corrupt file', () => {
