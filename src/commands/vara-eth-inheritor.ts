@@ -42,13 +42,14 @@ export function registerVaraEthInheritorCommand(program: Command): void {
     .description('Transfer locked value from an exited Mirror program to its inheritor')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (mirrorArg: string, options: RecoverOptions) => {
+    .action(async (mirrorArg: string, _options: RecoverOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as RecoverOptions;
       const mirrorAddress = asAddress(mirrorArg, 'mirror');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
 
       // Read the mirror state — check inheritor is set.

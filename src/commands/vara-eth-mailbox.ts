@@ -13,12 +13,18 @@ export function registerVaraEthMailboxCommand(program: Command): void {
     .description('Claim a value entry from the Mirror mailbox')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (mirrorArg: string, claimedIdArg: string, options: { account?: string; passphrase?: string }) => {
+    .action(async (
+      mirrorArg: string,
+      claimedIdArg: string,
+      _options: { account?: string; passphrase?: string },
+      cmd: Command,
+    ) => {
+      const opts = cmd.optsWithGlobals() as { account?: string; passphrase?: string };
       const mirror = asAddress(mirrorArg, 'mirror');
       const claimedId = asHex(claimedIdArg, 'claimedId');
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, options);
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const mirrorClient = await getMirrorClient(mirror, signer);

@@ -10,6 +10,7 @@ import {
   markFailed,
   markResolved,
 } from '../services/vara-eth/promises';
+import { serializeReplyCode } from '../shared/output-eth/reply-code';
 import { CliError } from '../utils/errors';
 import { asAddress, asHex, parseOptionalBigInt } from '../utils/eth-types';
 import { output } from '../utils/output';
@@ -43,30 +44,31 @@ export function registerVaraEthMessageCommand(program: Command): void {
       '--resume <txHash>',
       'look up a previously-submitted injected-tx outcome by txHash (no new submit). Only finds terminal-state cached promises; reattaching to in-flight pending promises requires lib-level support not yet shipped.',
     )
-    .action(async (mirrorArg: string, options: SendOptions) => {
+    .action(async (mirrorArg: string, _options: SendOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as SendOptions;
       const mirror = asAddress(mirrorArg, 'mirror');
 
-      if (options.resume) {
-        return handleResume(options.resume);
+      if (opts.resume) {
+        return handleResume(opts.resume);
       }
 
-      if (!options.payload) {
+      if (!opts.payload) {
         throw new CliError('--payload is required unless --resume is set', 'MISSING_REQUIRED_OPTION', {
           option: '--payload',
         });
       }
-      const payload = asHex(options.payload, '--payload');
-      const value = parseOptionalBigInt(options.value, '--value');
-      const via: 'eth' | 'injected' = options.via === 'eth' ? 'eth' : 'injected';
+      const payload = asHex(opts.payload, '--payload');
+      const value = parseOptionalBigInt(opts.value, '--value');
+      const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
       api.eth.setSigner(signer);
 
-      const timeoutMs = options.timeoutMs ? Number(options.timeoutMs) : undefined;
+      const timeoutMs = opts.timeoutMs ? Number(opts.timeoutMs) : undefined;
       const persist = via === 'injected';
       if (persist) initPromiseStore();
       const signerAddress = persist ? await signer.getAddress() : '0x';
@@ -107,7 +109,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
           markResolved(
             result.txHash,
             result.reply?.payload ?? '',
-            result.reply?.code.toString() ?? '',
+            result.reply ? serializeReplyCode(result.reply.code).raw : '',
             null, // validator signature isn't surfaced by sendAndWait; pull from a lower-level call when needed
           );
         } catch {
@@ -125,7 +127,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
           ? {
               payload: result.reply.payload,
               value: result.reply.value.toString(),
-              code: result.reply.code.toString(),
+              code: serializeReplyCode(result.reply.code),
             }
           : null,
       });
@@ -138,16 +140,17 @@ export function registerVaraEthMessageCommand(program: Command): void {
     .option('--value <wei>', 'value to attach')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (mirrorArg: string, msgIdArg: string, options: ReplyOptions) => {
+    .action(async (mirrorArg: string, msgIdArg: string, _options: ReplyOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as ReplyOptions;
       const mirror = asAddress(mirrorArg, 'mirror');
       const messageId = asHex(msgIdArg, 'messageId');
-      const payload = asHex(options.payload!, '--payload');
-      const value = parseOptionalBigInt(options.value, '--value');
+      const payload = asHex(opts.payload!, '--payload');
+      const value = parseOptionalBigInt(opts.value, '--value');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
       api.eth.setSigner(signer);
 

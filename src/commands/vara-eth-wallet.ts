@@ -55,15 +55,16 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .description('Generate a new mnemonic + V3 keystore for Vara.eth')
     .option('--passphrase <pass>', 'passphrase to encrypt the keystore')
     .option('--path <hdPath>', `BIP44 path (default: ${DEFAULT_ETH_HD_PATH})`)
-    .action(async (name: string, options: CreateOptions) => {
+    .action(async (name: string, _options: CreateOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as CreateOptions;
       if (ethexeWalletExists(name)) {
         throw new CliError(`Ethexe wallet "${name}" already exists`, 'WALLET_EXISTS', { name });
       }
-      const passphrase = requirePassphrase(options);
+      const passphrase = requirePassphrase(opts);
       migrateVaraWalletSuffix();
 
       const mnemonic = generateMnemonic();
-      const path = options.path ?? DEFAULT_ETH_HD_PATH;
+      const path = opts.path ?? DEFAULT_ETH_HD_PATH;
       const privateKey = deriveEthereumKey(mnemonic, path);
       const address = deriveAddressFromPrivateKey(privateKey);
       verbose(`Generated mnemonic at ${path} → ${address}`);
@@ -88,29 +89,30 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .option('--private-key <hex>', '32-byte secp256k1 key as 0x-hex')
     .option('--passphrase <pass>', 'passphrase to encrypt the keystore')
     .option('--path <hdPath>', `BIP44 path for mnemonic (default: ${DEFAULT_ETH_HD_PATH})`)
-    .action(async (name: string, options: ImportOptions) => {
+    .action(async (name: string, _options: ImportOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as ImportOptions;
       if (ethexeWalletExists(name)) {
         throw new CliError(`Ethexe wallet "${name}" already exists`, 'WALLET_EXISTS', { name });
       }
-      if (!options.mnemonic && !options.privateKey) {
+      if (!opts.mnemonic && !opts.privateKey) {
         throw new CliError('Either --mnemonic or --private-key is required.', 'MISSING_KEY_SOURCE');
       }
-      if (options.mnemonic && options.privateKey) {
+      if (opts.mnemonic && opts.privateKey) {
         throw new CliError('--mnemonic and --private-key are mutually exclusive.', 'CONFLICTING_KEY_SOURCES');
       }
-      const passphrase = requirePassphrase(options);
+      const passphrase = requirePassphrase(opts);
       migrateVaraWalletSuffix();
 
       let privateKey: Uint8Array;
       let hdPath: string | undefined;
-      if (options.mnemonic) {
-        if (!isValidMnemonic(options.mnemonic)) {
+      if (opts.mnemonic) {
+        if (!isValidMnemonic(opts.mnemonic)) {
           throw new CliError('Invalid BIP39 mnemonic.', 'INVALID_MNEMONIC');
         }
-        hdPath = options.path ?? DEFAULT_ETH_HD_PATH;
-        privateKey = deriveEthereumKey(options.mnemonic, hdPath);
+        hdPath = opts.path ?? DEFAULT_ETH_HD_PATH;
+        privateKey = deriveEthereumKey(opts.mnemonic, hdPath);
       } else {
-        privateKey = privateKeyHexToBytes(options.privateKey!);
+        privateKey = privateKeyHexToBytes(opts.privateKey!);
       }
 
       const address = deriveAddressFromPrivateKey(privateKey);
@@ -122,7 +124,7 @@ export function registerVaraEthWalletCommand(program: Command): void {
         address,
         path: filePath,
         hdPath: hdPath ?? null,
-        source: options.mnemonic ? 'mnemonic' : 'private-key',
+        source: opts.mnemonic ? 'mnemonic' : 'private-key',
       });
     });
 
@@ -163,8 +165,9 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .command('keys <name>')
     .description('Decrypt and print the raw private key (DANGEROUS — for export/recovery only)')
     .option('--passphrase <pass>', 'passphrase for the keystore')
-    .action(async (name: string, options: { passphrase?: string }) => {
-      const passphrase = requirePassphrase(options);
+    .action(async (name: string, _options: { passphrase?: string }, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as { passphrase?: string };
+      const passphrase = requirePassphrase(opts);
       const ks = loadEthexeWallet(name);
       const privateKey = await decryptKeystore(ks, passphrase);
       output({

@@ -30,17 +30,18 @@ export function registerVaraEthProgramCommand(program: Command): void {
     .option('--abi-interface <address>', 'ABI interface contract address')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (wasmPath: string, options: DeployOptions) => {
+    .action(async (wasmPath: string, _options: DeployOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as DeployOptions;
       const code = readFileSync(wasmPath);
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, options);
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const result = await api.programs.deploy(new Uint8Array(code), {
-        salt: options.salt ? asHex(options.salt, '--salt') : undefined,
-        executableBalance: options.executableBalance ? BigInt(options.executableBalance) : undefined,
-        abiInterface: options.abiInterface ? asAddress(options.abiInterface, '--abi-interface') : undefined,
+        salt: opts.salt ? asHex(opts.salt, '--salt') : undefined,
+        executableBalance: opts.executableBalance ? BigInt(opts.executableBalance) : undefined,
+        abiInterface: opts.abiInterface ? asAddress(opts.abiInterface, '--abi-interface') : undefined,
       });
 
       output({
@@ -59,12 +60,17 @@ export function registerVaraEthProgramCommand(program: Command): void {
     .requiredOption('--amount <wei>', 'amount in WVARA wei')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (mirrorArg: string, options: { amount: string; account?: string; passphrase?: string }) => {
+    .action(async (
+      mirrorArg: string,
+      _options: { amount: string; account?: string; passphrase?: string },
+      cmd: Command,
+    ) => {
+      const opts = cmd.optsWithGlobals() as { amount: string; account?: string; passphrase?: string };
       const mirror = asAddress(mirrorArg, 'mirror');
-      const amount = BigInt(options.amount);
+      const amount = BigInt(opts.amount);
 
       const api = await getEthexeApi();
-      const signer = await resolveEthexeSigner(api.eth.publicClient, options);
+      const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
       const mirrorClient = await getMirrorClient(mirror, signer);

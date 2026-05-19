@@ -50,14 +50,15 @@ export function registerVaraEthWvaraCommand(program: Command): void {
     .description('Transfer WVARA to another address (amount in raw integer units)')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (toArg: string, amountArg: string, options: AccountOptions) => {
+    .action(async (toArg: string, amountArg: string, _options: AccountOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as AccountOptions;
       const to = asAddress(toArg, 'to');
       const amount = parseBigIntArg(amountArg, 'amount');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
       api.eth.setSigner(signer);
 
@@ -80,14 +81,15 @@ export function registerVaraEthWvaraCommand(program: Command): void {
     .description('Approve a spender to transfer WVARA on your behalf (amount in raw integer units)')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
-    .action(async (spenderArg: string, amountArg: string, options: AccountOptions) => {
+    .action(async (spenderArg: string, amountArg: string, _options: AccountOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as AccountOptions;
       const spender = asAddress(spenderArg, 'spender');
       const amount = parseBigIntArg(amountArg, 'amount');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
       api.eth.setSigner(signer);
 
@@ -111,17 +113,18 @@ export function registerVaraEthWvaraCommand(program: Command): void {
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .option('--deadline <unix-seconds>', 'permit deadline as UNIX timestamp (default: now + 300s)')
-    .action(async (spenderArg: string, amountArg: string, options: PermitOptions) => {
+    .action(async (spenderArg: string, amountArg: string, _options: PermitOptions, cmd: Command) => {
+      const opts = cmd.optsWithGlobals() as PermitOptions;
       const spender = asAddress(spenderArg, 'spender');
       const amount = parseBigIntArg(amountArg, 'amount');
-      const deadlineSeconds = options.deadline
-        ? parseBigIntArg(options.deadline, '--deadline')
+      const deadlineSeconds = opts.deadline
+        ? parseBigIntArg(opts.deadline, '--deadline')
         : BigInt(Math.floor(Date.now() / 1000) + 300);
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, {
-        account: options.account,
-        passphrase: options.passphrase,
+        account: opts.account,
+        passphrase: opts.passphrase,
       });
       api.eth.setSigner(signer);
 

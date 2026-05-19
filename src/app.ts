@@ -57,6 +57,7 @@ program
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
   .option('--mnemonic <mnemonic>', 'account mnemonic phrase')
   .option('--account <name>', 'wallet name to use')
+  .option('--passphrase <pass>', 'wallet passphrase (Vara.eth keystores; substrate side reads VARA_PASSPHRASE / .passphrase instead)')
   .option('--json', 'force JSON output')
   .option('--human', 'force human-readable output')
   .option('--quiet', 'suppress all output except errors')
