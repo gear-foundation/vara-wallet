@@ -36,6 +36,9 @@ Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so th
 ### Tests
 
 - 25 new unit tests: keystore round-trip (encrypt/decrypt/wrong-passphrase/non-32-byte rejection/V3 shape), BIP39 + BIP32 HD derivation against the Anvil mnemonic, chain resolution precedence, wallet-store file-mode + migration semantics. Total suite: 734 passing.
+### Added — bridged VFT token aliases (from main)
+
+- **Built-in bridged VFT token aliases.** New `token list` / `token resolve` commands expose official Vara bridge token program IDs for mainnet/testnet. Existing `vft` and `dex` token arguments now accept aliases like `usdc`, `wusdc`, `weth`, `wbtc`, `tokenized-vara`, `wvara`, and `wtvara` while preserving raw token program address support.
 
 ## [0.19.0] - 2026-05-16
 

@@ -8,7 +8,7 @@ await build({
   outfile: 'dist/app.js',
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   format: 'cjs',
   minify: false,
   sourcemap: 'linked',

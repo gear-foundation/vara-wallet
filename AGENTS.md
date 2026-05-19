@@ -214,16 +214,24 @@ vara-wallet events list --type mailbox --limit 10
 
 ### VFT (Fungible Token) operations
 
+Official bridged VFTs can be used by alias on mainnet/testnet. Use `token list` to see the built-ins.
+
 ```bash
+# Discover built-in bridged token aliases
+vara-wallet token list --network mainnet
+vara-wallet token resolve usdc --network mainnet
+
 # Check token balance
-vara-wallet vft balance 0xTokenProgram... --idl ./vft.idl
+vara-wallet vft balance usdc --network mainnet
 
 # Transfer tokens
-vara-wallet --account agent vft transfer 0xTokenProgram... <to> 1000 --idl ./vft.idl
+vara-wallet --account agent vft transfer usdc <to> 1000 --units human --network mainnet
 
 # Approve spender
-vara-wallet --account agent vft approve 0xTokenProgram... <spender> 1000 --idl ./vft.idl
+vara-wallet --account agent vft approve usdc <spender> 1000 --units human --network mainnet
 ```
+
+Aliases: `usdc`/`wusdc`, `usdt`/`wusdt`, `weth`, `wbtc`, and `tokenized-vara` (`wvara` mainnet, `wtvara` testnet). Raw token program IDs still work and are required on `local` or custom endpoints.
 
 ### DEX (Decentralized Exchange) operations
 
@@ -234,10 +242,10 @@ Trade tokens on the vara-amm DEX. Requires a factory address — set via `--fact
 vara-wallet dex pairs --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
 
 # Get a swap quote (check price impact before trading)
-vara-wallet dex quote 0xTOKEN_IN 0xTOKEN_OUT 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
+vara-wallet dex quote usdc weth 10 --units human --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e --network testnet
 
 # Execute a swap (auto-approves the input token)
-vara-wallet --account agent dex swap 0xTOKEN_IN 0xTOKEN_OUT 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e --slippage 100
+vara-wallet --account agent dex swap usdc weth 10 --units human --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e --slippage 100 --network testnet
 
 # Add liquidity
 vara-wallet --account agent dex add-liquidity 0xTOKEN0 0xTOKEN1 1000000 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
@@ -246,7 +254,7 @@ vara-wallet --account agent dex add-liquidity 0xTOKEN0 0xTOKEN1 1000000 1000000 
 vara-wallet --account agent dex remove-liquidity 0xTOKEN0 0xTOKEN1 5000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
 ```
 
-Slippage is in basis points (100 = 1%). Tokens are auto-sorted to match factory convention. Use `--units token` for human-readable amounts.
+Slippage is in basis points (100 = 1%). Tokens are auto-sorted to match factory convention. Use `--units human` for human-readable token amounts.
 
 ### Generic substrate operations
 
@@ -397,6 +405,8 @@ over regex matching on `.error`.
 | `IDL_NOT_FOUND` | No Sails IDL available | If the error says the WASM has no `sails:idl` custom section, run `vara-wallet idl import <path.idl> --program <id>`. Otherwise pass `--idl <path>` for one-off use. |
 | `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read top-level `.programMessage` for the contract-level cause (Result::unwrap wrapper stripped). State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
 | `TRANSPORT_ERROR` | Network failure (DNS / WS handshake / RPC disconnect / TLS / timeout) | Switch on top-level `.reason`: `timeout` / `ws_close_abnormal` are transient (retry the same endpoint, matching the wallet's auto-retry); the rest (`dns_failure` / `tls_failure` / `protocol_mismatch` / `connection_refused` / `unreachable`) are permanent for the current endpoint (swap `--ws` / `--network`). `.endpoint` and `.host` (DNS) identify the target. |
+| `TOKEN_NOT_FOUND` | Unknown built-in token alias | Run `vara-wallet token list --network <mainnet\|testnet>` or pass the raw token program address. |
+| `TOKEN_NETWORK_UNSUPPORTED` | Built-in token aliases used on local/custom endpoint | Use `--network mainnet` / `--network testnet`, or pass the raw token program address. |
 
 ### Transparent connect-time retry (since 0.18.0)
 

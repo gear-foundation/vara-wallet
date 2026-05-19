@@ -247,17 +247,25 @@ vara-wallet idl clear [--yes]
 
 ### `vft` (Fungible Tokens)
 
-Works out of the box with standard VFT programs — no `--idl` needed (bundled IDL fallback).
+Works out of the box with standard VFT programs — no `--idl` needed (bundled IDL fallback). Official bridged VFTs can be passed by alias on mainnet/testnet.
 
 ```bash
-vara-wallet vft info <tokenProgram> [--idl <path>]
-vara-wallet vft balance <tokenProgram> [account] [--idl <path>]
-vara-wallet vft allowance <tokenProgram> <owner> <spender> [--idl <path>]
-vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
-vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
-vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
-vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
-vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet token list
+vara-wallet token list --all
+vara-wallet token resolve usdc --network mainnet
+```
+
+Built-in bridged-token aliases: `usdc`/`wusdc`, `usdt`/`wusdt`, `weth`, `wbtc`, and `tokenized-vara` (`wvara` on mainnet, `wtvara` on testnet). Aliases use `--network`, `VARA_WS`, config, or the default mainnet endpoint to pick the network. On `local` or custom endpoints, pass the raw token program address.
+
+```bash
+vara-wallet vft info <tokenProgram|alias> [--idl <path>]
+vara-wallet vft balance <tokenProgram|alias> [account] [--idl <path>]
+vara-wallet vft allowance <tokenProgram|alias> <owner> <spender> [--idl <path>]
+vara-wallet vft transfer <tokenProgram|alias> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft approve <tokenProgram|alias> <spender> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft transfer-from <tokenProgram|alias> <from> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft mint <tokenProgram|alias> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft burn <tokenProgram|alias> <from> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
 ```
 
 `--units human` passes amounts using the token's declared decimals (e.g., `1.5` auto-converts via the on-chain `Decimals` query). Default is `raw` (minimal units, passthrough as bigint). The legacy `token` literal was renamed to `human` in 0.15.0 for cross-command consistency. `vft balance` and `vft allowance` safely return `'0'` when the underlying query is `opt u256` and the account has no row (was a `BigInt(null)` crash in 0.14.x).
@@ -270,14 +278,18 @@ Rivr DEX testnet factory: `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114
 
 ```bash
 vara-wallet dex pairs [--factory <addr>] [--limit <n>]
-vara-wallet dex pool <token0> <token1> [--factory <addr>]
-vara-wallet dex quote <tokenIn> <tokenOut> <amount> [--reverse] [--units human|raw]
-vara-wallet dex swap <tokenIn> <tokenOut> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve] [--voucher <id>]
-vara-wallet dex add-liquidity <token0> <token1> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
-vara-wallet dex remove-liquidity <token0> <token1> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
+vara-wallet dex pool <token0|alias> <token1|alias> [--factory <addr>]
+vara-wallet dex quote <tokenIn|alias> <tokenOut|alias> <amount> [--reverse] [--units human|raw]
+vara-wallet dex swap <tokenIn|alias> <tokenOut|alias> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve] [--voucher <id>]
+vara-wallet dex add-liquidity <token0|alias> <token1|alias> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
+vara-wallet dex remove-liquidity <token0|alias> <token1|alias> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
 ```
 
 Slippage is in basis points (100 = 1%, default). Swaps auto-approve input tokens unless `--skip-approve` is set. Use `--units human` to pass amounts in the token's declared decimals (e.g. `1.5`); default is `raw` (minimal units).
+
+```bash
+vara-wallet dex quote usdc weth 10 --units human --network mainnet --factory <factory>
+```
 
 ### `voucher`
 
@@ -445,6 +457,8 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `DEX_SERVICE_NOT_FOUND` | DEX method not found in IDL |
 | `PAIR_NOT_FOUND` | Trading pair doesn't exist |
 | `TOKEN_MISMATCH` | Tokens don't match pair |
+| `TOKEN_NOT_FOUND` | Built-in token alias is unknown for the selected network |
+| `TOKEN_NETWORK_UNSUPPORTED` | Built-in token aliases require mainnet/testnet; pass a raw token address on local/custom endpoints |
 | `INVALID_SLIPPAGE` | Slippage out of range (0-5000 bps) |
 | `TRANSPORT_ERROR` | WS / RPC / light-client / chainspec-fetch failure. All fields sit at top level (no `meta` envelope): `.reason` (one of `dns_failure`, `connection_refused`, `timeout`, `ws_close_abnormal`, `protocol_mismatch`, `unreachable`, `tls_failure`, `unknown`), `.endpoint`, and either `.host` (DNS) or `.cause` (raw upstream message). Agents should switch on `.reason` to distinguish transient (`timeout`, `ws_close_abnormal` — match the wallet's own auto-retry) from permanent (`dns_failure`, `tls_failure`, `protocol_mismatch`, `connection_refused`, `unreachable`). |
 | `CONNECTION_FAILED` | Faucet HTTP request failure (the WS / RPC surface now uses `TRANSPORT_ERROR`). |

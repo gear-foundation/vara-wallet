@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { readConfig, updateConfig, VaraWalletConfig } from '../services/config';
+import { readConfig, updateConfig, VaraWalletConfig, NETWORK_MAP } from '../services/config';
 import { output, CliError } from '../utils';
 
 const VALID_KEYS: Array<keyof VaraWalletConfig> = [
@@ -8,12 +8,6 @@ const VALID_KEYS: Array<keyof VaraWalletConfig> = [
   'dexFactoryAddress',
   'faucetUrl',
 ];
-
-const NETWORK_MAP: Record<string, string> = {
-  mainnet: 'wss://rpc.vara.network',
-  testnet: 'wss://testnet.vara.network',
-  local: 'ws://localhost:9944',
-};
 
 export function registerConfigCommand(program: Command): void {
   const config = program.command('config').description('Manage CLI configuration');
