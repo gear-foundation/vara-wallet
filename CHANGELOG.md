@@ -2,9 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.20.0] - 2026-05-19
 
-### Added — ethexe rail (Phase 3a + 3b)
+One theme: **the wallet now drives Vara.eth as a first-class chain**. The substrate rail (`vara-wallet --chain vara`) is untouched. A parallel `vara-wallet --chain vara-eth` rail ships with read paths verified on mainnet + Hoodi, L1 write path verified on Hoodi (three real on-chain transactions in the integration report), and an injected-tx persistence layer that survives kill/restart. Typed errors from `@vara-eth/api@0.5.0-rc.1` now surface as `MESSAGE_REVERTED` / `PROMISE_TIMEOUT` / `CHAIN_ID_MISMATCH` (etc.) directly in JSON output — no more `INTERNAL_ERROR` catch-all. Diagnostics flag `--no-validate-signature` lets operators bypass the validator-signature check on injected-path replies when triaging recovery failures.
+
+### Added — Vara.eth rail (Phase 3a + 3b)
 
 Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so the same CLI now drives both substrate Vara and ethexe. Substrate commands are untouched. Ethexe commands live under the `ethexe:` prefix to make rail selection explicit at the call site instead of hiding it behind a `--chain` flag.
 
@@ -33,12 +35,33 @@ Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so th
 
 - Adds: `@noble/ciphers`, `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `kzg-wasm`, `viem` (aliased to `@vara-eth/viem@2.48.11` fork for EIP-7594 blob support), and `@vara-eth/api` (currently `file:vendor/vara-eth-api-0.5.0-rc.0.tgz` until the public npm publish — see release-train discipline in `~/.gstack/projects/gear-tech-gear/session-plans/2026-05-16-phase-2-3-implementation.md`).
 
-### Tests
+### Added — Milestone A + B (production-readiness)
 
-- 25 new unit tests: keystore round-trip (encrypt/decrypt/wrong-passphrase/non-32-byte rejection/V3 shape), BIP39 + BIP32 HD derivation against the Anvil mnemonic, chain resolution precedence, wallet-store file-mode + migration semantics. Total suite: 734 passing.
+- **Global `--account` / `--passphrase` propagate** into every `vara-eth:*` subcommand. Substrate parity: pass the flag at the root command (`vara-wallet --account alice vara-eth:wvara approve …`) and the action handler picks it up via `cmd.optsWithGlobals()`. Previously the global was silently ignored and the resolver fell through to `config.defaultAccount`. Also adds `--passphrase` to the root command (Vara.eth keystores only; substrate side still reads `VARA_PASSPHRASE` env / `.passphrase` file).
+- **ReplyCode JSON output** now emits `{ tag, raw, reason }` (e.g. `{ tag: "Success.Auto", raw: "0x00000000", reason: "Success reply was created by system automatically." }`) instead of `"[object Object]"`. The lib's `ReplyCode` is a discriminated-union class with no useful `toString()`; the wallet now extracts the tag through the existing `is*` getters. Lossless: `raw` is the underlying 4-byte hex.
+- **`MessageRevertedError`** flows from `@vara-eth/api@0.5.0-rc.1` through `formatError` to JSON output as `{ code: 'MESSAGE_REVERTED', error, reason, functionName }`. Contract reverts (e.g. `InitMessageNotCreatedAndCallerNotInitializer()`) now carry their decoded selector + the entry point that failed, so agents can branch on `code === 'MESSAGE_REVERTED'` instead of regex-matching `error.message`.
+- **`--no-validate-signature`** flag on `vara-eth:message send` for diagnostics. Passes `validateSignature: false` to the lib's `sendAndWait`, skipping the validator-signature recovery check on injected-path replies. Useful only for triaging signature-mismatch failures (currently surfacing on Hoodi). Production default remains `true`.
+
 ### Added — bridged VFT token aliases (from main)
 
 - **Built-in bridged VFT token aliases.** New `token list` / `token resolve` commands expose official Vara bridge token program IDs for mainnet/testnet. Existing `vft` and `dex` token arguments now accept aliases like `usdc`, `wusdc`, `weth`, `wbtc`, `tokenized-vara`, `wvara`, and `wtvara` while preserving raw token program address support.
+
+### Changed — Vara.eth chain token (breaking on this branch only — no prior release)
+
+- **Chain token renamed** `ethexe` → `vara-eth` everywhere user-visible: CLI flag (`--chain vara-eth`), command prefix (`vara-eth:*`), wallet file suffix (`.vara-eth.json`), config key (`defaultChain: 'vara-eth'`). No legacy shims — this branch never shipped to users with the old token. Internal types: `Chain = 'vara' | 'vara-eth'`.
+
+### Tests
+
+- 25 new unit tests in Phase 3a (V3 keystore, BIP39 + BIP32 HD, chain resolution, wallet-store migration).
+- 14 net-new unit tests in Milestone A (`vara-eth-opts-globals.test.ts` × 4, `reply-code-serializer.test.ts` × 10).
+- 3 net-new unit tests in Milestone B (`vara-eth-error-mapping.test.ts`).
+- 4 net-new unit tests in the lib (`@vara-eth/api`, `message-reverted.test.ts`).
+- **Total wallet suite: 799 passing.**
+
+### Verified end-to-end (Hoodi)
+
+- Three real on-chain transactions through `vara-eth:message send --via eth` against deployed one-of-us Mirrors. See `docs/vara-eth-integration-report.md` §2.2 for tx hashes.
+- Read path against both Hoodi and Vara.eth mainnet (Router + WVARA balanceOf, Mirror state reads). See `docs/vara-eth-integration-report.md` §2.1.
 
 ## [0.19.0] - 2026-05-16
 
