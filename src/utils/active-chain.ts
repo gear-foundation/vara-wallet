@@ -8,3 +8,17 @@ export function resolveActiveChain(command: Command): Chain {
   const config = readConfig();
   return resolveChain(opts.chain, config.defaultChain);
 }
+
+export function resolveActionChain(actionCommand: Command | undefined, explicit?: string, configDefault?: string): Chain {
+  if (!explicit && isVaraEthCommand(actionCommand)) return 'vara-eth';
+  return resolveChain(explicit, configDefault);
+}
+
+function isVaraEthCommand(command: Command | undefined): boolean {
+  let current: Command | undefined = command;
+  while (current) {
+    if (current.name().startsWith('vara-eth:')) return true;
+    current = current.parent ?? undefined;
+  }
+  return false;
+}

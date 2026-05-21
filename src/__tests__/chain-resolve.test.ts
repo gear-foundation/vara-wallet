@@ -1,4 +1,7 @@
+import { Command } from 'commander';
+
 import { resolveChain, isChain, chainDisplay } from '../chains/types';
+import { resolveActionChain } from '../utils/active-chain';
 
 describe('resolveChain', () => {
   it('defaults to vara when nothing supplied', () => {
@@ -41,5 +44,22 @@ describe('chainDisplay', () => {
   it('maps each chain to its branded display name', () => {
     expect(chainDisplay('vara')).toBe('Vara');
     expect(chainDisplay('vara-eth')).toBe('Vara.eth');
+  });
+});
+
+describe('resolveActionChain', () => {
+  function nestedVaraEthCommand(): Command {
+    const program = new Command();
+    const wallet = program.command('vara-eth:wallet');
+    return wallet.command('list');
+  }
+
+  it('infers Vara.eth for prefixed commands when --chain is omitted', () => {
+    expect(resolveActionChain(nestedVaraEthCommand(), undefined, undefined)).toBe('vara-eth');
+    expect(resolveActionChain(nestedVaraEthCommand(), undefined, 'vara')).toBe('vara-eth');
+  });
+
+  it('keeps explicit --chain ahead of command namespace inference', () => {
+    expect(resolveActionChain(nestedVaraEthCommand(), 'vara', undefined)).toBe('vara');
   });
 });

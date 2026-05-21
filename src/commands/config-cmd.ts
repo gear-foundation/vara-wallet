@@ -67,11 +67,14 @@ export function registerConfigCommand(program: Command): void {
         const chain = resolveActiveChain(config);
         if (chain === 'vara-eth') {
           const preset = resolveVaraEthNetwork(value);
-          updateConfig({
+          const updates: Partial<VaraWalletConfig> = {
             varaEthNetwork: value as VaraWalletConfig['varaEthNetwork'],
             varaEthRpc: preset.varaEthRpc,
             ethereumRpc: preset.ethereumRpc,
-            ...(preset.routerAddress ? { routerAddress: preset.routerAddress } : {}),
+            routerAddress: preset.routerAddress ?? undefined,
+          };
+          updateConfig({
+            ...updates,
           });
           output({
             key: 'varaEthNetwork',

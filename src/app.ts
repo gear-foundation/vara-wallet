@@ -15,7 +15,7 @@ import { registerVaraEthWvaraCommand } from './commands/vara-eth-wvara';
 import { registerVaraEthInheritorCommand } from './commands/vara-eth-inheritor';
 import { registerVaraEthValidatorsCommand } from './commands/vara-eth-validators';
 import { resolveVaraEthNetwork } from './chains/vara-eth/networks';
-import { resolveChain } from './chains/types';
+import { resolveActionChain } from './utils/active-chain';
 import { readConfig } from './services/config';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
@@ -68,7 +68,7 @@ program
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
   .option('--chain <name>', 'target chain: vara (default, substrate) or vara-eth (Vara.eth co-processor on Ethereum)')
   .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
-  .hook('preAction', () => {
+  .hook('preAction', (_thisCommand, actionCommand) => {
     const opts = program.opts();
     setOutputOptions({
       json: opts.json,
@@ -83,7 +83,7 @@ program
       process.env.VARA_LIGHT = '1';
     }
     const config = readConfig();
-    const chain = resolveChain(opts.chain, config.defaultChain);
+    const chain = resolveActionChain(actionCommand, opts.chain, config.defaultChain);
     if (opts.network) {
       if (chain === 'vara-eth') {
         // Vara.eth path — resolve against the Vara.eth network registry.
@@ -100,6 +100,8 @@ program
         process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = preset.ethereumRpc;
         if (preset.routerAddress) {
           process.env.VARA_ETH_NETWORK_PRESET_ROUTER = preset.routerAddress;
+        } else {
+          delete process.env.VARA_ETH_NETWORK_PRESET_ROUTER;
         }
       } else {
         // Substrate / Vara path — existing behaviour.
