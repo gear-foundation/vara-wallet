@@ -29,7 +29,8 @@ export function registerVaraEthMailboxCommand(program: Command): void {
 
       const mirrorClient = await getMirrorClient(mirror, signer);
       const tx = await mirrorClient.claimValue(claimedId);
-      const [receipt, event] = await Promise.all([tx.getReceipt(), tx.getValueClaimingRequestedEvent()]);
+      const receipt = await tx.sendAndWaitForReceipt();
+      const event = await tx.getValueClaimingRequestedEvent();
 
       output({
         mirror,

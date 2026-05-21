@@ -5,6 +5,7 @@ import { registerMailboxCommand } from './mailbox';
 import { registerBalanceCommand } from './balance';
 import { registerTransfersCommand } from './transfers';
 import { registerProgramCommand } from './program';
+import { registerRouterCommand } from './router';
 
 export function registerSubscribeCommand(program: Command): void {
   const subscribe = program
@@ -20,4 +21,5 @@ export function registerSubscribeCommand(program: Command): void {
   registerBalanceCommand(subscribe);
   registerTransfersCommand(subscribe);
   registerProgramCommand(subscribe);
+  registerRouterCommand(subscribe);
 }

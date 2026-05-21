@@ -111,6 +111,19 @@ returned the decoded contract revert** `InitMessageNotCreatedAndCallerNotInitial
 — proving the wallet surfaces on-chain errors through to the user, even if
 the typed-error class is generic (see Follow-Up #8 below).
 
+Additional funded Hoodi smoke on 2026-05-21 confirmed the WVARA/top-up UX:
+
+| Operation | Tx | Outcome |
+|---|---|---|
+| `wvara approve <Router> 0` from `hoodi-smoke` | `0x9d7113…7ea227` | status `success`, block `2860019`, gas `30,969` |
+| `wvara approve <one-of-us Mirror> 1` | `0xbd64ce…c6de04` | status `success`, block `2860027`, gas `50,881`; proved mirror-level allowance requirement |
+| `program top-up <one-of-us Mirror> --amount 1 --units raw` | `0x7330a2…5dc4c9` | status `success`, block `2860033`, gas `71,243`; WTVARA balance decreased by exactly one raw unit |
+| permit-backed `program top-up <one-of-us Mirror> --amount 1 --units raw` | `0x995436…217f91` | status `success`, block `2860355`, gas `112,422`; no manual approve or `VARA_PASSPHRASE` env required |
+
+The same pass also exposed and fixed the top-up submission bug: the wallet
+must call `sendAndWaitForReceipt()` on the `executableBalanceTopUp` transaction
+manager, not `getReceipt()` before `send()`.
+
 L1 write path includes: V3 keystore load + scrypt decrypt → `LocalSigner` →
 calldata encode (Sails service-route prefix + SCALE args) → secp256k1
 sign → broadcast → receipt wait → Reply event listen → SCALE decode →
@@ -121,7 +134,7 @@ JSON output.
 | Operation | Symptom | Status |
 |---|---|---|
 | `message send --via injected` on Hoodi | `"Validator signature did not recover to a valid address."` (lib's `PromiseSignatureInvalidError`) | Investigate; see #9 |
-| Most contract reverts | Surface as `INTERNAL_ERROR`, not `MESSAGE_REVERTED` | Typed-error gap; see #8 |
+| Some non-message contract reverts | Previously surfaced as generic errors; ERC-20 allowance/balance selectors now decode to structured `CONTRACT_REVERT` | Continue expanding decoder as new selectors appear |
 | `reply.code` in JSON output | Renders as `"[object Object]"` | Serializer bug; see #7 |
 | `--account hoodi-smoke` global flag | Falls through to `config.defaultAccount` | Commander wiring; see #6 |
 
@@ -293,23 +306,24 @@ vara-wallet --chain vara-eth --network hoodi --json \
 ### Write-side smoke (Hoodi smoke wallet at `~/.vara-wallet/wallets/hoodi-smoke.vara-eth.json`)
 
 ```bash
-# Currently requires VARA_PASSPHRASE env + defaultAccount override
-# (Follow-up #1 will let you pass --account / --passphrase normally)
+# The local smoke credential can live at:
+# ~/.vara-wallet/passphrases/hoodi-smoke.passphrase
 
-vara-wallet config set defaultAccount hoodi-smoke
-
-VARA_PASSPHRASE=hoodi-smoke-throwaway vara-wallet \
+vara-wallet \
   --chain vara-eth --network hoodi --json \
+  --account hoodi-smoke \
+  balance
+
+vara-wallet \
+  --chain vara-eth --network hoodi --json \
+  --account hoodi-smoke \
   vara-eth:wvara approve 0xE549b0AfEdA978271FF7E712232B9F7f39A0b060 0
 
-VARA_PASSPHRASE=hoodi-smoke-throwaway vara-wallet \
+vara-wallet \
   --chain vara-eth --network hoodi --json \
-  vara-eth:message send 0x0a02812883cd818ddb0db60183609da2e7685a98 \
-    --payload 0x1c4f6e654f665573184a6f696e5573 \
-    --via eth
-
-# Restore once done
-vara-wallet config set defaultAccount agent
+  --account hoodi-smoke \
+  program top-up 0x0a02812883cd818ddb0db60183609da2e7685a98 \
+    --amount 1 --units raw
 ```
 
 ### Sails payload encoder snippet (for any service.method call)
@@ -411,3 +425,48 @@ Open (gated on environment access — see §5):
 
 Milestone A+B code is **production-ready and merged on branch**. The three
 open items are verification + investigation, not implementation.
+
+---
+
+## 9. Gear `ethexe-cli` parity check (2026-05-20)
+
+This is the repo-local comparison against `../gear/ethexe/cli` after the
+Vara.eth wallet integration landed.
+
+### What matches
+
+- `run` / `key` / `check` are ethexe-node responsibilities, not wallet
+  responsibilities. `vara-wallet` intentionally does not try to reproduce
+  those operator flows.
+- The wallet does cover the user-facing transaction surface that maps to
+  Gear's `tx` workflows:
+  - `vara-eth:program deploy`
+  - `vara-eth:program top-up`
+  - `vara-eth:message send`
+  - `vara-eth:message reply`
+  - `vara-eth:state read`
+  - `vara-eth:mailbox claim`
+  - `vara-eth:wvara balance|transfer|approve|permit`
+  - `vara-eth:inheritor recover`
+  - `vara-eth:subscribe router|program|blocks`
+
+### Still incomplete
+
+| Gear ethexe-cli surface | Wallet status | Notes |
+|---|---|---|
+| `tx owned-balance-top-up` | Missing | The wallet only exposes executable balance top-up today. |
+| `tx transfer-locked-value-to-inheritor` | Covered indirectly | Implemented in `vara-eth:inheritor recover`, but via a wallet-side ABI shim because the upstream client lacked the wrapper. |
+| `tx send-message --injected` resume of pending in-flight txs | Partial | Terminal outcomes can be re-read, but live re-attachment to pending promises is still not fully modeled in-wallet. |
+| `tx deploy` persistence across restarts | Partial | The deploy ceremony exists, but the operational resume path is not yet as durable as `message send`. |
+| Node/operator lifecycle (`run`, `key`, `check`) | Not applicable | These belong to the ethexe node CLI, not the wallet. |
+
+### Verdict
+
+The wallet is **feature-complete for the core Vara.eth end-user flows**
+that need to be driven from `vara-wallet` itself. It is **not a perfect
+mirror of `ethexe-cli`**, because the node-side operator commands stay in
+the Gear repo and a few operational extras remain partial.
+
+The main remaining gaps are operational, not structural: owned-balance
+top-up parity, better deploy persistence, and full pending-promise
+resume semantics.

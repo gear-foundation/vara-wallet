@@ -15,12 +15,15 @@ import {
   loadEthexeWallet,
   saveEthexeWallet,
 } from '../shared/keyring-eth';
+import { WrongPassphraseError } from '../shared/errors-eth';
+import { resolveEthexePassphrase } from '../services/vara-eth/account';
 import { CliError } from '../utils/errors';
 import { output, verbose } from '../utils/output';
 
 interface CreateOptions {
   passphrase?: string;
   path?: string;
+  showSecret?: boolean;
 }
 
 interface ImportOptions {
@@ -55,6 +58,7 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .description('Generate a new mnemonic + V3 keystore for Vara.eth')
     .option('--passphrase <pass>', 'passphrase to encrypt the keystore')
     .option('--path <hdPath>', `BIP44 path (default: ${DEFAULT_ETH_HD_PATH})`)
+    .option('--show-secret', 'include mnemonic and private key in output')
     .action(async (name: string, _options: CreateOptions, cmd: Command) => {
       const opts = cmd.optsWithGlobals() as CreateOptions;
       if (ethexeWalletExists(name)) {
@@ -71,14 +75,18 @@ export function registerVaraEthWalletCommand(program: Command): void {
       const keystore = await encryptKeystore(privateKey, passphrase, { address });
       const filePath = saveEthexeWallet(name, keystore);
 
-      output({
+      const out: Record<string, unknown> = {
         name,
         address,
         path: filePath,
         hdPath: path,
-        mnemonic,
-        warning: 'Record the mnemonic — it is the only way to recover the key. It will not be shown again.',
-      });
+      };
+      if (opts.showSecret) {
+        out.mnemonic = mnemonic;
+        out.privateKey = bytesToHex(privateKey);
+        out.warning = 'Record the mnemonic — it is the only way to recover the key. It will not be shown again.';
+      }
+      output(out);
     });
 
   wallet
@@ -169,9 +177,14 @@ export function registerVaraEthWalletCommand(program: Command): void {
     .option('--passphrase <pass>', 'passphrase for the keystore')
     .action(async (name: string, _options: { passphrase?: string }, cmd: Command) => {
       const opts = cmd.optsWithGlobals() as { passphrase?: string };
-      const passphrase = requirePassphrase(opts);
       const ks = loadEthexeWallet(name);
-      const privateKey = await decryptKeystore(ks, passphrase);
+      const { passphrase, source } = resolveEthexePassphrase(name, opts.passphrase);
+      let privateKey: Uint8Array;
+      try {
+        privateKey = await decryptKeystore(ks, passphrase);
+      } catch {
+        throw new WrongPassphraseError(name, source);
+      }
       output({
         name,
         address: `0x${ks.address}`,

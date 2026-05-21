@@ -6,6 +6,8 @@ import { resolveAccount, AccountOptions } from '../services/account';
 import { parseIdlFileAuto } from '../services/sails';
 import { executeTx } from '../services/tx-executor';
 import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
+import { outputVaraEthProgramInfo, outputVaraEthProgramList, outputVaraEthProgramTopUp } from './vara-eth-actions';
 
 export interface InitOptions {
   payload: string;
@@ -131,6 +133,9 @@ export function registerProgramCommand(program: Command): void {
       dryRun?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        throw new CliError('program upload is not supported for --chain vara-eth yet. Use vara-eth:program deploy for the advanced rail-specific flow.', 'UNSUPPORTED_CHAIN_OPERATION');
+      }
 
       if (!fs.existsSync(wasmPath)) {
         throw new CliError(`WASM file not found: ${wasmPath}`, 'FILE_NOT_FOUND');
@@ -241,6 +246,9 @@ export function registerProgramCommand(program: Command): void {
       dryRun?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        throw new CliError('program deploy is not supported for --chain vara-eth yet. Use vara-eth:program deploy for the advanced rail-specific flow.', 'UNSUPPORTED_CHAIN_OPERATION');
+      }
 
       // Resolve init payload first — no account or network required, so
       // --dry-run can run on machines with no wallet configured.
@@ -321,6 +329,11 @@ export function registerProgramCommand(program: Command): void {
     .argument('<programId>', 'program ID (hex or SS58)')
     .action(async (programId: string) => {
       const opts = program.optsWithGlobals() as { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        await outputVaraEthProgramInfo(programId);
+        return;
+      }
+
       const api = await getApi(opts.ws);
 
       const programIdHex = addressToHex(programId);
@@ -355,6 +368,11 @@ export function registerProgramCommand(program: Command): void {
     .option('--all', 'list all programs without limit')
     .action(async (options: { count?: string; all?: boolean }) => {
       const opts = program.optsWithGlobals() as { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        await outputVaraEthProgramList(options);
+        return;
+      }
+
       const api = await getApi(opts.ws);
 
       verbose('Fetching program list...');
@@ -363,5 +381,19 @@ export function registerProgramCommand(program: Command): void {
       const programs = await api.program.allUploadedPrograms(count);
 
       output(programs);
+    });
+
+  prog
+    .command('top-up')
+    .description('Top up the executable balance of a Vara.eth program')
+    .argument('<programId>', 'Vara.eth Mirror address')
+    .requiredOption('--amount <amount>', 'amount in WVARA, human units by default')
+    .option('--units <units>', 'amount units: human (default) or raw')
+    .action(async (programId: string, options: { amount: string; units?: string }) => {
+      const opts = program.optsWithGlobals() as AccountOptions;
+      if (resolveActiveChain(program) !== 'vara-eth') {
+        throw new CliError('program top-up is only supported with --chain vara-eth', 'UNSUPPORTED_CHAIN_OPERATION');
+      }
+      await outputVaraEthProgramTopUp(programId, { ...opts, ...options });
     });
 }

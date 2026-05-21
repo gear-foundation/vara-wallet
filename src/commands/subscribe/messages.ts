@@ -34,7 +34,7 @@ export function registerMessagesCommand(parent: Command): void {
       idl?: string;
       decode?: boolean;
     }) => {
-      const opts = parent.parent!.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
+      const opts = parent.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
       installGlobalTimeout(opts.timeout);
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;

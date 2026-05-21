@@ -6,6 +6,8 @@ import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx, TxEvent } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, classifyProgramError, resolvePayload, tryHexToText } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
+import { outputVaraEthMessageReply, outputVaraEthMessageSend } from './vara-eth-actions';
 
 /**
  * Extract messageId from transaction events using multi-pattern fallback.
@@ -64,6 +66,10 @@ export function registerMessageCommand(program: Command): void {
     .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
+    .option('--via <path>', 'Vara.eth send path: injected (default) or eth', 'injected')
+    .option('--timeout-ms <ms>', 'Vara.eth injected promise timeout')
+    .option('--no-validate-signature', 'Vara.eth diagnostics: skip injected validator signature validation')
+    .option('--resume <txHash>', 'Vara.eth: inspect a cached injected send outcome by tx hash')
     .action(async (destination: string, options: {
       payload: string;
       payloadAscii?: string;
@@ -72,8 +78,23 @@ export function registerMessageCommand(program: Command): void {
       units?: string;
       metadata?: string;
       voucher?: string;
+      via?: 'eth' | 'injected';
+      timeoutMs?: string;
+      validateSignature?: boolean;
+      resume?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher || options.units) {
+          throw new CliError(
+            '--chain vara-eth message send supports --payload, --value, --via, --timeout-ms, --resume, and account options',
+            'UNSUPPORTED_CHAIN_OPTION',
+          );
+        }
+        await outputVaraEthMessageSend(destination, { ...opts, ...options });
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
       const value = resolveAmount(options.value, options.units);
@@ -173,6 +194,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
+    .option('--mirror <address>', 'Vara.eth Mirror program address for the reply')
     .action(async (messageId: string, options: {
       payload: string;
       payloadAscii?: string;
@@ -181,8 +203,23 @@ export function registerMessageCommand(program: Command): void {
       units?: string;
       metadata?: string;
       voucher?: string;
+      mirror?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        if (!options.mirror) {
+          throw new CliError('--mirror is required for --chain vara-eth message reply', 'MISSING_REQUIRED_OPTION');
+        }
+        if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher || options.units) {
+          throw new CliError(
+            '--chain vara-eth message reply supports --mirror, --payload, --value, and account options',
+            'UNSUPPORTED_CHAIN_OPTION',
+          );
+        }
+        await outputVaraEthMessageReply(options.mirror, messageId, { ...opts, ...options });
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
       const value = resolveAmount(options.value, options.units);
@@ -265,6 +302,9 @@ export function registerMessageCommand(program: Command): void {
       origin?: string;
       at?: string;
     }) => {
+      if (resolveActiveChain(program) === 'vara-eth') {
+        throw new CliError('calculate-reply is not supported for --chain vara-eth yet', 'UNSUPPORTED_CHAIN_OPERATION');
+      }
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const value = resolveAmount(options.value, options.units);

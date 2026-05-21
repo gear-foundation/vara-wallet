@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { getApi } from '../../services/api';
 import { initEventStore } from '../../services/event-store';
 import { verbose } from '../../utils';
+import { resolveActiveChain } from '../../utils/active-chain';
+import { subscribeVaraEthBlocks } from '../vara-eth-actions';
 import {
   emitSystemEvent,
   emitAndPersist,
@@ -18,9 +20,24 @@ export function registerBlocksCommand(parent: Command): void {
     .command('blocks')
     .description('Subscribe to new block headers')
     .option('--finalized', 'subscribe to finalized blocks only')
-    .action(async (options: { finalized?: boolean }) => {
-      const opts = parent.parent!.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
+    .option('--include-pending', 'Vara.eth: follow pending Ethereum blocks too')
+    .action(async (options: { finalized?: boolean; includePending?: boolean }) => {
+      const opts = parent.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
       installGlobalTimeout(opts.timeout);
+      if (resolveActiveChain(parent) === 'vara-eth') {
+        installEpipeHandler();
+        let ka: ReturnType<typeof keepAlive>;
+        await subscribeVaraEthBlocks(
+          { ...options, persist: opts.persist, count: opts.count, onLimit: () => ka?.triggerExit() },
+          async (unsub) => {
+            emitSystemEvent('subscribed', { subscription: 'blocks', chain: 'vara-eth' });
+            ka = keepAlive([unsub], { timeout: opts.timeout ? parseInt(opts.timeout, 10) : undefined });
+            await ka.promise;
+          },
+        );
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;
       if (persist) initEventStore();

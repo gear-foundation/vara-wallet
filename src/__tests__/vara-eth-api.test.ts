@@ -13,6 +13,7 @@ const LOCAL_PRESET = {
 const DISCOVERED_ROUTER = '0x1111111111111111111111111111111111111111';
 const FALLBACK_ROUTER = '0x2222222222222222222222222222222222222222';
 const EXPLICIT_ROUTER = '0x3333333333333333333333333333333333333333';
+const CLI_ROUTER = '0x5555555555555555555555555555555555555555';
 
 let tmpDir: string;
 let origCwd: string;
@@ -102,5 +103,34 @@ describe('resolveEthexeConfig', () => {
     const cfg = resolveEthexeConfig({ networkPreset: LOCAL_PRESET });
 
     expect(cfg.routerAddress).toBe(EXPLICIT_ROUTER);
+  });
+
+  it('keeps the command-line network preset ahead of a persisted config preset', () => {
+    writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify({ varaEthNetwork: 'mainnet' }) + '\n');
+    process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = 'wss://hoodi-validator.example';
+    process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = 'wss://hoodi-eth.example';
+    process.env.VARA_ETH_NETWORK_PRESET_ROUTER = CLI_ROUTER;
+
+    const cfg = resolveEthexeConfig();
+
+    expect(cfg.varaEthRpc).toBe('wss://hoodi-validator.example');
+    expect(cfg.ethereumRpc).toBe('wss://hoodi-eth.example');
+    expect(cfg.routerAddress).toBe(CLI_ROUTER);
+  });
+
+  it('does not fall back to a persisted router when the command-line preset needs local discovery', () => {
+    writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify({
+      varaEthNetwork: 'mainnet',
+      routerAddress: FALLBACK_ROUTER,
+    }) + '\n');
+    writeBroadcastArtifact(path.join(tmpDir, 'broadcast', 'DeployRouter.s.sol', '31337', 'run-latest.json'), DISCOVERED_ROUTER);
+    process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = LOCAL_PRESET.varaEthRpc;
+    process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = LOCAL_PRESET.ethereumRpc;
+
+    const cfg = resolveEthexeConfig();
+
+    expect(cfg.varaEthRpc).toBe(LOCAL_PRESET.varaEthRpc);
+    expect(cfg.ethereumRpc).toBe(LOCAL_PRESET.ethereumRpc);
+    expect(cfg.routerAddress).toBe(DISCOVERED_ROUTER);
   });
 });

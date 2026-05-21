@@ -1,8 +1,6 @@
 import { Command } from 'commander';
 
-import { getEthexeApi } from '../services/vara-eth/api';
-import { asAddress, parseOptionalBigInt } from '../utils/eth-types';
-import { outputNdjson, verbose } from '../utils/output';
+import { subscribeVaraEthBlocks, subscribeVaraEthProgram, subscribeVaraEthRouter } from './vara-eth-actions';
 
 /**
  * Holds the process open until the user sends SIGINT/SIGTERM and tears down
@@ -29,20 +27,7 @@ export function registerVaraEthSubscribeCommand(program: Command): void {
     .description('Stream all events emitted by a Mirror program')
     .option('--from-block <n>', 'back-fill from this block number')
     .action(async (mirrorArg: string, options: { fromBlock?: string }) => {
-      const mirror = asAddress(mirrorArg, 'mirror');
-      const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
-
-      const api = await getEthexeApi();
-      verbose(`subscribing to program events ${mirror}`);
-      const unsubscribe = api.stream.programEvents(
-        mirror,
-        {
-          onEvent: (event) => outputNdjson({ kind: 'program', ...event }),
-          onError: (err) => outputNdjson({ kind: 'error', error: err.message }),
-        },
-        { fromBlock },
-      );
-      await awaitSignalAnd(unsubscribe);
+      await subscribeVaraEthProgram(mirrorArg, options, awaitSignalAnd);
     });
 
   cmd
@@ -50,17 +35,7 @@ export function registerVaraEthSubscribeCommand(program: Command): void {
     .description('Stream all events emitted by the Router')
     .option('--from-block <n>', 'back-fill from this block number')
     .action(async (options: { fromBlock?: string }) => {
-      const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
-      const api = await getEthexeApi();
-      verbose('subscribing to router events');
-      const unsubscribe = api.stream.routerEvents(
-        {
-          onEvent: (event) => outputNdjson({ kind: 'router', ...event }),
-          onError: (err) => outputNdjson({ kind: 'error', error: err.message }),
-        },
-        { fromBlock },
-      );
-      await awaitSignalAnd(unsubscribe);
+      await subscribeVaraEthRouter(options, awaitSignalAnd);
     });
 
   cmd
@@ -68,15 +43,6 @@ export function registerVaraEthSubscribeCommand(program: Command): void {
     .description('Stream new Ethereum block headers')
     .option('--include-pending', 'follow pending blocks too')
     .action(async (options: { includePending?: boolean }) => {
-      const api = await getEthexeApi();
-      verbose('subscribing to blocks');
-      const unsubscribe = api.stream.blocks(
-        {
-          onEvent: (header) => outputNdjson({ kind: 'block', ...header }),
-          onError: (err) => outputNdjson({ kind: 'error', error: err.message }),
-        },
-        { includePending: options.includePending },
-      );
-      await awaitSignalAnd(unsubscribe);
+      await subscribeVaraEthBlocks(options, awaitSignalAnd);
     });
 }

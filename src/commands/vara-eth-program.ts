@@ -74,12 +74,16 @@ export function registerVaraEthProgramCommand(program: Command): void {
       api.eth.setSigner(signer);
 
       const mirrorClient = await getMirrorClient(mirror, signer);
-      const tx = await mirrorClient.executableBalanceTopUp(amount);
-      const receipt = await tx.getReceipt();
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
+      const permitData = await api.eth.wvara.prepareAndSignPermitData(mirror, amount, deadline);
+      const tx = await mirrorClient.executableBalanceTopUpWithPermit(amount, deadline, permitData.signature);
+      const receipt = await tx.sendAndWaitForReceipt();
 
       output({
         mirror,
         amount: amount.toString(),
+        approval: 'permit',
+        deadline: deadline.toString(),
         txHash: receipt.transactionHash,
         blockNumber: Number(receipt.blockNumber),
         status: receipt.status,

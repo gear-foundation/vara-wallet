@@ -6,6 +6,7 @@ import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -34,6 +35,9 @@ export function registerCallCommand(program: Command): void {
       dryRun?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        throw new CliError('Sails call support is not implemented for --chain vara-eth yet', 'UNSUPPORTED_CHAIN_OPERATION');
+      }
 
       // --estimate and --dry-run COMPOSE on functions: when both are set,
       // we encode the payload AND compute gas estimate (requires account).

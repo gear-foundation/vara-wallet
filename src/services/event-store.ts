@@ -16,6 +16,8 @@ export interface EventRow {
   type: string;
   event_id: string | null;
   data: string;
+  chain: string | null;
+  network: string | null;
   block_number: number | null;
   block_hash: string | null;
   source: string | null;
@@ -26,6 +28,8 @@ export interface EventRow {
 
 export interface EventInsert {
   type: string;
+  chain?: string;
+  network?: string;
   event_id?: string;
   data: Record<string, unknown>;
   block_number?: number;
@@ -40,6 +44,8 @@ export interface EventQueryFilters {
   since?: number; // Unix ms timestamp
   program?: string;
   destination?: string;
+  chain?: string;
+  network?: string;
   limit?: number;
 }
 
@@ -62,6 +68,8 @@ export function initEventStore(): void {
         type TEXT NOT NULL,
         event_id TEXT,
         data TEXT NOT NULL,
+        chain TEXT,
+        network TEXT,
         block_number INTEGER,
         block_hash TEXT,
         source TEXT,
@@ -69,7 +77,15 @@ export function initEventStore(): void {
         program_id TEXT,
         created_at INTEGER NOT NULL
       );
+    `);
+
+    ensureColumn('events', 'chain', 'TEXT');
+    ensureColumn('events', 'network', 'TEXT');
+
+    db.exec(`
       CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+      CREATE INDEX IF NOT EXISTS idx_events_chain ON events(chain);
+      CREATE INDEX IF NOT EXISTS idx_events_network ON events(network);
       CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
       CREATE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id);
       CREATE INDEX IF NOT EXISTS idx_events_destination ON events(destination);
@@ -78,8 +94,8 @@ export function initEventStore(): void {
 
     // Prepare cached statements
     insertStmt = db.prepare(`
-      INSERT INTO events (type, event_id, data, block_number, block_hash, source, destination, program_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO events (type, chain, network, event_id, data, block_number, block_hash, source, destination, program_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     readStmt = db.prepare('SELECT * FROM events WHERE event_id = ? ORDER BY created_at DESC LIMIT 1');
     pruneStmt = db.prepare('DELETE FROM events WHERE created_at < ?');
@@ -100,8 +116,10 @@ export function insertEvent(event: EventInsert): void {
   try {
     insertStmt.run(
       event.type,
+      event.chain ?? 'vara',
+      event.network ?? null,
       event.event_id ?? null,
-      JSON.stringify(event.data),
+      JSON.stringify(event.data, bigintReplacer),
       event.block_number ?? null,
       event.block_hash ?? null,
       event.source ?? null,
@@ -154,6 +172,14 @@ export function queryEvents(filters?: EventQueryFilters): EventRow[] {
     conditions.push('destination = ?');
     params.push(filters.destination);
   }
+  if (filters?.chain) {
+    conditions.push('(chain = ? OR (chain IS NULL AND ? = ?))');
+    params.push(filters.chain, filters.chain, 'vara');
+  }
+  if (filters?.network) {
+    conditions.push('network = ?');
+    params.push(filters.network);
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = filters?.limit ?? 50;
@@ -161,6 +187,17 @@ export function queryEvents(filters?: EventQueryFilters): EventRow[] {
   params.push(limit);
 
   return db.prepare(sql).all(...params) as EventRow[];
+}
+
+function ensureColumn(table: string, column: string, type: string): void {
+  if (!db) return;
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.some((entry) => entry.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
+function bigintReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'bigint' ? value.toString() : value;
 }
 
 export function readEvent(eventId: string): EventRow | undefined {

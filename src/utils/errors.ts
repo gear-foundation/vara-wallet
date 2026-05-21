@@ -1,4 +1,27 @@
 import { isVerboseEnabled } from './output';
+import type { Abi } from 'viem';
+import { decodeErrorResult } from 'viem/utils';
+
+const ERC20_ERROR_ABI = [
+  {
+    type: 'error',
+    name: 'ERC20InsufficientAllowance',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'allowance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'ERC20InsufficientBalance',
+    inputs: [
+      { name: 'sender', type: 'address' },
+      { name: 'balance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
+] as const satisfies Abi;
 
 /**
  * Duck-types a @vara-eth/api typed error without importing the lib at module
@@ -107,6 +130,9 @@ export function formatError(error: unknown): { error: string; code: string } & E
     return transport.meta ? { ...transport.meta, ...base } : base;
   }
 
+  const contractRevert = classifyContractRevert(error);
+  if (contractRevert) return contractRevert;
+
   // Typed errors from @vara-eth/api carry stable string codes
   // (`MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, …); surface them directly so
   // wallet consumers don't have to regex on .message. Duck-typed to avoid
@@ -137,6 +163,106 @@ export function formatError(error: unknown): { error: string; code: string } & E
     ? JSON.stringify(error)
     : String(error);
   return { error: msg, code: 'UNKNOWN_ERROR' };
+}
+
+function classifyContractRevert(error: unknown): ({ error: string; code: string } & ErrorMeta) | null {
+  const raw = extractContractErrorData(error);
+  if (!raw) return null;
+
+  const selector = raw.data.slice(0, 10).toLowerCase();
+  let decoded: { errorName: string; args?: readonly unknown[] } | null = null;
+  if (raw.data.length > 10) {
+    try {
+      decoded = decodeErrorResult({ abi: ERC20_ERROR_ABI, data: raw.data as `0x${string}` });
+    } catch {
+      decoded = null;
+    }
+  }
+
+  const contractError = decoded?.errorName ?? knownContractErrorName(selector) ?? 'UnknownContractError';
+  return {
+    code: 'CONTRACT_REVERT',
+    reason: contractErrorReason(contractError),
+    contractError,
+    selector,
+    ...(decoded ? contractErrorArgs(contractError, decoded.args ?? []) : {}),
+    error: sanitizeErrorMessage(`${contractError}${decoded?.args ? `(${decoded.args.map(String).join(', ')})` : ''}`),
+  };
+}
+
+function extractContractErrorData(error: unknown): { data: string } | null {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const data = extractContractErrorDataFromValue(current);
+    if (data) return { data };
+    current = typeof current === 'object' && current !== null
+      ? (current as { cause?: unknown }).cause
+      : undefined;
+  }
+  return null;
+}
+
+function extractContractErrorDataFromValue(value: unknown): string | null {
+  if (typeof value === 'string') return extractContractErrorDataFromText(value);
+  if (typeof value !== 'object' || value === null) return null;
+  const obj = value as Record<string, unknown>;
+  for (const key of ['data', 'raw', 'details', 'shortMessage', 'message']) {
+    const field = obj[key];
+    if (typeof field === 'string') {
+      const data = extractContractErrorDataFromText(field);
+      if (data) return data;
+      if (/^0x[0-9a-fA-F]{8}([0-9a-fA-F]{64})*$/.test(field)) return field;
+    } else if (typeof field === 'object' && field !== null) {
+      const nested = extractContractErrorDataFromValue(field);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function extractContractErrorDataFromText(text: string): string | null {
+  const custom = text.match(/custom error (0x[0-9a-fA-F]{8}):\s*([0-9a-fA-F]*)/);
+  if (custom) return `${custom[1]}${custom[2]}`;
+  const signature = text.match(/signature:\s*(0x[0-9a-fA-F]{8})/);
+  if (signature) return signature[1];
+  return null;
+}
+
+function knownContractErrorName(selector: string): string | null {
+  switch (selector) {
+    case '0xfb8f41b2':
+      return 'ERC20InsufficientAllowance';
+    case '0xe450d38c':
+      return 'ERC20InsufficientBalance';
+    default:
+      return null;
+  }
+}
+
+function contractErrorReason(contractError: string): string {
+  switch (contractError) {
+    case 'ERC20InsufficientAllowance':
+      return 'erc20_insufficient_allowance';
+    case 'ERC20InsufficientBalance':
+      return 'erc20_insufficient_balance';
+    default:
+      return 'contract_revert';
+  }
+}
+
+function contractErrorArgs(contractError: string, args: readonly unknown[]): ErrorMeta {
+  const stringArgs = args.map((arg) => typeof arg === 'bigint' ? arg.toString() : arg);
+  if (contractError === 'ERC20InsufficientAllowance') {
+    const [spender, allowance, needed] = stringArgs;
+    return { spender, allowance, needed };
+  }
+  if (contractError === 'ERC20InsufficientBalance') {
+    const [sender, balance, needed] = stringArgs;
+    return { sender, balance, needed };
+  }
+  return { args: stringArgs };
 }
 
 function extractCauseChain(error: unknown): string | undefined {

@@ -5,6 +5,8 @@ import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
+import { outputVaraEthBalance, outputVaraEthWvaraTransfer } from './vara-eth-actions';
 
 export function registerBalanceCommand(program: Command): void {
   program
@@ -13,6 +15,11 @@ export function registerBalanceCommand(program: Command): void {
     .argument('[address]', 'account address, hex or SS58 (defaults to configured account)')
     .action(async (address?: string) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        await outputVaraEthBalance(address, opts);
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const resolvedAddress = await resolveAddress(address, opts);
 
@@ -38,6 +45,17 @@ export function registerBalanceCommand(program: Command): void {
     .option('--all', 'transfer entire balance (account will be reaped)')
     .action(async (to: string, amount: string | undefined, options: { units?: string; all?: boolean }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        if (options.all) {
+          throw new CliError('--all is not supported for Vara.eth WVARA transfers', 'UNSUPPORTED_CHAIN_OPERATION');
+        }
+        if (!amount) {
+          throw new CliError('Provide <amount>', 'INVALID_ARGS');
+        }
+        await outputVaraEthWvaraTransfer(to, amount, { ...opts, units: options.units });
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
 

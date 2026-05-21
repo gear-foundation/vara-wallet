@@ -17,8 +17,11 @@ export class KeystoreDecryptError extends CliError {
 
 /** Raised when the passphrase doesn't match the keystore MAC. */
 export class WrongPassphraseError extends CliError {
-  constructor(walletName: string) {
-    super(`Wrong passphrase for Vara.eth wallet "${walletName}".`, 'WRONG_PASSPHRASE', { walletName });
+  constructor(walletName: string, passphraseSource?: string) {
+    super(`Wrong passphrase for Vara.eth wallet "${walletName}".`, 'WRONG_PASSPHRASE', {
+      walletName,
+      ...(passphraseSource ? { passphraseSource } : {}),
+    });
   }
 }
 

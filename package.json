@@ -9,6 +9,9 @@
   "files": [
     "dist"
   ],
+  "bundledDependencies": [
+    "@vara-eth/api"
+  ],
   "engines": {
     "node": ">=22"
   },

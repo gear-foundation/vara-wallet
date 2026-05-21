@@ -1,6 +1,8 @@
 import { Command } from 'commander';
 import { initEventStore, queryEvents, pruneEvents } from '../services/event-store';
 import { output, verbose, addressToHex } from '../utils';
+import { asAddress } from '../utils/eth-types';
+import { resolveActiveChain } from '../utils/active-chain';
 import { parseDuration } from './subscribe/shared';
 
 export function registerEventsCommand(program: Command): void {
@@ -14,17 +16,24 @@ export function registerEventsCommand(program: Command): void {
     .option('--type <type>', 'filter by event type (block, message, mailbox, balance, transfer, program)')
     .option('--since <duration>', 'time filter (e.g., 1h, 30m, 7d)')
     .option('--program <id>', 'filter by program ID')
+    .option('--chain <chain>', 'filter by chain: vara or vara-eth')
+    .option('--network <network>', 'filter by network preset')
     .option('--limit <n>', 'max results (default: 50)', '50')
-    .action((options: { type?: string; since?: string; program?: string; limit: string }) => {
+    .action((options: { type?: string; since?: string; program?: string; chain?: string; network?: string; limit: string }, cmd: Command) => {
       initEventStore();
 
       const since = options.since ? Date.now() - parseDuration(options.since) : undefined;
       const limit = parseInt(options.limit, 10);
-      const program = options.program ? addressToHex(options.program) : undefined;
+      const chain = options.chain ?? resolveActiveChain(cmd);
+      const program = options.program
+        ? (chain === 'vara-eth' ? asAddress(options.program, '--program') : addressToHex(options.program))
+        : undefined;
 
-      const rows = queryEvents({ type: options.type, since, program, limit });
+      const rows = queryEvents({ type: options.type, since, program, chain, network: options.network, limit });
       const parsed = rows.map((row) => ({
         id: row.id,
+        chain: row.chain ?? 'vara',
+        network: row.network ?? null,
         ...JSON.parse(row.data),
         storedAt: row.created_at,
       }));

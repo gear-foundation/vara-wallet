@@ -157,7 +157,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
 
       const mirrorClient = await getMirrorClient(mirror, signer);
       const tx = await mirrorClient.sendReply(messageId, payload, value);
-      const receipt = await tx.getReceipt();
+      const receipt = await tx.sendAndWaitForReceipt();
 
       output({
         mirror,

@@ -5,14 +5,19 @@ import { writeUserFile } from '../utils/secure-file';
 export interface VaraWalletConfig {
   wsEndpoint?: string;
   defaultAccount?: string;
+  /** Default account name for the Vara.eth rail. Falls back to defaultAccount when unset. */
+  defaultVaraEthAccount?: string;
   dexFactoryAddress?: string;
   faucetUrl?: string;
-  // Phase 3 (Vara.eth rail) — optional, falls back to env vars when absent.
   defaultChain?: 'vara' | 'vara-eth';
+  /** Last selected Substrate Vara network preset. */
+  varaNetwork?: 'mainnet' | 'testnet' | 'local';
+  /** Last selected Vara.eth network preset. Hoodi is the public testnet. */
+  varaEthNetwork?: 'mainnet' | 'hoodi' | 'local';
   varaEthRpc?: string;
   ethereumRpc?: string;
   routerAddress?: `0x${string}`;
-  /** Validator endpoint URLs for the Vara.eth validator pool (Phase 3b). */
+  /** Validator endpoint URLs for the Vara.eth validator pool. */
   varaEthValidatorPool?: string[];
 }
 

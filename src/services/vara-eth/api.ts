@@ -22,6 +22,7 @@ import {
 
 import { CliError } from '../../utils/errors';
 import { readConfig } from '../config';
+import { resolveVaraEthNetwork } from '../../chains/vara-eth/networks';
 
 interface CacheEntry {
   api: VaraEthApi;
@@ -128,7 +129,8 @@ function discoverLocalRouterAddress(root = process.cwd()): Address | undefined {
 }
 
 /**
- * Resolves the Vara.eth endpoint stack from explicit options → env vars → config → network preset.
+ * Resolves the Vara.eth endpoint stack from explicit options → env vars →
+ * command-line network preset → config → config network preset.
  *
  * Required: `varaEthRpc` (WS), `ethereumRpc` (WS), `routerAddress` (0x-hex).
  * Throws {@link CliError} with `MISSING_ETHEXE_CONFIG` if any are missing.
@@ -139,22 +141,30 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
   routerAddress: Address;
 } {
   const config = readConfig();
-  const preset = options.networkPreset;
-  // VARA_ETH_NETWORK_PRESET_* are set by app.ts preAction when --network is used with --chain vara-eth.
-  // They act as lowest-priority fallback below explicit options, env vars, and config.
-  const presetVaraEthRpc = preset?.varaEthRpc ?? process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC;
-  const presetEthereumRpc = preset?.ethereumRpc ?? process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC;
-  const presetRouter = preset?.routerAddress ?? (process.env.VARA_ETH_NETWORK_PRESET_ROUTER as Address | undefined);
+  const configPreset = config.varaEthNetwork ? resolveVaraEthNetwork(config.varaEthNetwork) : undefined;
+  const hasCliPreset = options.networkPreset !== undefined ||
+    Boolean(process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC || process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC);
+  const cliPresetVaraEthRpc = options.networkPreset?.varaEthRpc ?? process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC;
+  const cliPresetEthereumRpc = options.networkPreset?.ethereumRpc ?? process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC;
+  const cliPresetRouter =
+    options.networkPreset?.routerAddress ??
+    (process.env.VARA_ETH_NETWORK_PRESET_ROUTER as Address | undefined);
 
-  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? presetVaraEthRpc;
-  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? presetEthereumRpc;
-  let routerAddress =
-    options.routerAddress ??
-    (process.env.VARA_ETH_ROUTER as Address | undefined) ??
-    config.routerAddress ??
-    presetRouter;
+  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? cliPresetVaraEthRpc ?? config.varaEthRpc ?? configPreset?.varaEthRpc;
+  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? cliPresetEthereumRpc ?? config.ethereumRpc ?? configPreset?.ethereumRpc;
+  let routerAddress = options.routerAddress ?? (process.env.VARA_ETH_ROUTER as Address | undefined);
 
-  if (!routerAddress && preset?.routerAddress === null) {
+  if (!routerAddress && hasCliPreset) {
+    routerAddress = cliPresetRouter ?? undefined;
+  }
+  if (!routerAddress && !hasCliPreset) {
+    routerAddress = config.routerAddress ?? configPreset?.routerAddress ?? undefined;
+  }
+
+  if (!routerAddress && (
+    hasCliPreset ||
+    (!hasCliPreset && configPreset?.routerAddress === null)
+  )) {
     routerAddress = discoverLocalRouterAddress();
   }
 
