@@ -78,6 +78,20 @@ describe('listWallets', () => {
     const defaultWallet = wallets.find((w) => w.name === 'test1');
     expect(defaultWallet?.isDefault).toBe(true);
   });
+
+  it('does not list Vara.eth keystores as native wallets', () => {
+    fs.writeFileSync(
+      path.join(testDir, 'wallets', 'alice.vara-eth.json'),
+      JSON.stringify({
+        version: 3,
+        address: 'abcdef0000000000000000000000000000000001',
+        crypto: { kdf: 'scrypt', kdfparams: { n: 2 } },
+      }),
+    );
+
+    const wallets = listWallets();
+    expect(wallets.some((w) => w.name === 'alice.vara-eth')).toBe(false);
+  });
 });
 
 describe('walletExists', () => {

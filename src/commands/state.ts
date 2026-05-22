@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
+import { outputVaraEthStateRead } from './vara-eth-actions';
 
 export function registerStateCommand(program: Command): void {
   const state = program.command('state').description('Program state operations');
@@ -13,12 +15,29 @@ export function registerStateCommand(program: Command): void {
     .option('--payload <payload>', 'state query payload (hex or JSON)', '0x')
     .option('--origin <address>', 'origin address for the query (hex or SS58)')
     .option('--at <blockHash>', 'block hash to query state at')
+    .option('--full', 'Vara.eth: fetch full program state')
+    .option('--queue', 'Vara.eth: fetch only message queue')
+    .option('--mailbox', 'Vara.eth: fetch only mailbox')
     .action(async (programId: string, options: {
       payload: string;
       origin?: string;
       at?: string;
+      full?: boolean;
+      queue?: boolean;
+      mailbox?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        if (options.payload !== '0x' || options.origin || options.at) {
+          throw new CliError(
+            '--chain vara-eth state read supports --full, --queue, and --mailbox; Sails calculateReply state queries are not supported yet',
+            'UNSUPPORTED_CHAIN_OPTION',
+          );
+        }
+        await outputVaraEthStateRead(programId, options);
+        return;
+      }
+
       const api = await getApi(opts.ws);
 
       let origin: `0x${string}`;

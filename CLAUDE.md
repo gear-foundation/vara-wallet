@@ -28,6 +28,19 @@ Run a single test file:
 npx jest src/__tests__/units.test.ts
 ```
 
+### Local `@vara-eth/api` iteration
+
+`@vara-eth/api` is consumed from `vendor/vara-eth-api-*.tgz` (a `yarn pack` checkpoint of the sibling `../gear-js/apis/vara-eth` checkout). After editing the lib, refresh the tarball + reinstall in one shot:
+
+```bash
+npm run dev:link:vara-eth                 # uses ../gear-js/apis/vara-eth
+npm run dev:link:vara-eth -- ../some/path # explicit lib path
+```
+
+The script: rebuilds the lib, `yarn pack`s to `vendor/`, then `npm install ./vendor/<tarball>` so node_modules and `package.json`'s `file:` ref both update. No `--force`, so unrelated deps (smoldot, sails-js, etc.) aren't refetched.
+
+The vendored tarball stays committed so contributors without the sibling checkout still build from a clean clone.
+
 ## Architecture
 
 **Entry point:** `src/app.ts` — registers all commands via Commander.js, initializes polkadot crypto, handles graceful shutdown.

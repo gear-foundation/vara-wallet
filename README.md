@@ -19,7 +19,7 @@ vara-wallet balance
 # Transfer VARA
 vara-wallet transfer <destination> 10
 
-# Interact with a Sails program
+# Interact with a Sails program on native Vara
 vara-wallet call <programId> Service/Method --args '["arg1", "arg2"]'
 
 # Pass hex strings for binary args — auto-converted to byte arrays
@@ -27,11 +27,15 @@ vara-wallet call <programId> Service/Upload --args '["0xdeadbeef"]'
 
 # Pass SS58 or hex addresses for ActorId args — SS58 auto-normalized to hex
 vara-wallet call <programId> Vft/BalanceOf --args '["5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"]'
+
+# Use the Vara.eth rail on Hoodi
+vara-wallet vara-eth:wallet create agent-eth --passphrase "$PASSPHRASE"
+vara-wallet --chain vara-eth --network hoodi vara-eth:wvara balance 0xYOUR_ETH_ADDRESS
 ```
 
 ## Installation
 
-Requires Node.js 20 or newer.
+Requires Node.js 22 or newer.
 
 ```bash
 npm install -g vara-wallet
@@ -57,14 +61,16 @@ npm link
 --seed <seed>         Account seed (SURI like //Alice or hex)
 --mnemonic <mnemonic> Account mnemonic phrase
 --account <name>      Wallet name to use
+--passphrase <pass>   Vara.eth wallet passphrase
 --json                Force JSON output
 --human               Force human-readable output
 --quiet               Suppress all output except errors
 --verbose             Show debug info on stderr
 --network <name>      Network shorthand: mainnet, testnet, or local
+--chain <name>        Target chain: vara (default) or vara-eth
 ```
 
-`--network` maps to the well-known WS endpoint for each network. Cannot be used with `--ws`.
+`--network` maps to the well-known endpoint for the active chain. Native Vara uses `mainnet|testnet|local`; Vara.eth uses `mainnet|hoodi|local`. Pick the chain first with `--chain`.
 
 ## Environment Variables
 
@@ -78,10 +84,13 @@ npm link
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
 | `VARA_DEX_FACTORY` | DEX factory program address | — |
 | `VARA_FAUCET_URL` | Faucet API URL | `https://faucet.gear-tech.io` |
+| `VARA_ETH_RPC` | Vara.eth validator RPC | network preset |
+| `ETHEREUM_RPC` | Ethereum JSON-RPC/WebSocket endpoint for Vara.eth | network preset |
+| `VARA_ETH_ROUTER` | Vara.eth Router address | network preset |
 
 ## Account Resolution
 
-When a command needs a signing account, it checks in order:
+When a native Vara command needs a signing account, it checks in order:
 
 1. `--seed` flag
 2. `VARA_SEED` env var
@@ -89,6 +98,8 @@ When a command needs a signing account, it checks in order:
 4. `VARA_MNEMONIC` env var
 5. `--account` flag (loads wallet file)
 6. Default account from config
+
+Vara.eth commands use Ethereum V3 keystores under `~/.vara-wallet/wallets/<name>.vara-eth.json`. Select them with `--account <name>` and provide the keystore passphrase with `--passphrase` or `VARA_PASSPHRASE`.
 
 ## Wallet Encryption
 
@@ -110,6 +121,14 @@ vara-wallet wallet create --name human-key --passphrase "memorable-phrase"
 
 # Opt out of encryption (not recommended)
 vara-wallet wallet create --name unsafe --no-encrypt --show-secret
+```
+
+Vara.eth wallets are separate Ethereum V3 keystores:
+
+```bash
+vara-wallet vara-eth:wallet create alice --passphrase "$PASSPHRASE"
+vara-wallet vara-eth:wallet import alice --private-key 0x... --passphrase "$PASSPHRASE"
+vara-wallet vara-eth:wallet show alice
 ```
 
 ## Commands
@@ -143,7 +162,41 @@ vara-wallet wallet keys <name>
 vara-wallet wallet default [name]
 ```
 
+Without an explicit `--chain`, `wallet list` shows both native Vara and Vara.eth wallets with a `chain` field on each row. Use `--chain vara wallet list` or `--chain vara-eth wallet list` for a chain-specific inventory.
+
 `wallet keys` outputs the raw key material: `{ address, publicKey, secretKeyPkcs8, type }`. The PKCS8 blob contains the full secret key and can be used with Polkadot tooling to reconstruct the keypair. This is a sensitive operation — the secret key is exposed in the output. For a redacted export suitable for sharing, use `wallet export`.
+
+### Vara.eth rail
+
+Vara.eth is selected with `--chain vara-eth`. Its public testnet preset is `hoodi`; `--network testnet` remains the native Vara/Substrate testnet and is not a Vara.eth alias.
+
+```bash
+# Read-only preflight
+vara-wallet --chain vara-eth --network hoodi vara-eth:wvara balance 0xYOUR_ETH_ADDRESS
+vara-wallet --chain vara-eth --network hoodi vara-eth:state read 0xMIRROR
+
+# Send a message through the direct Ethereum path (safe default for writes)
+vara-wallet --chain vara-eth --network hoodi --account alice \
+  vara-eth:message send 0xMIRROR --payload 0xfeed --via eth
+
+# Deploy a Sails program through the root command surface
+vara-wallet --chain vara-eth --network hoodi --account alice \
+  program upload ./program.opt.wasm --idl ./program.idl --args '[]'
+
+# Discover and call a Sails Mirror
+vara-wallet --chain vara-eth --network hoodi discover 0xMIRROR --idl ./program.idl
+vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args '[]' --idl ./program.idl
+```
+
+Direct Vara.eth commands are available for rail-specific operations:
+
+```bash
+vara-wallet vara-eth:wallet create alice --passphrase "$PASSPHRASE"
+vara-wallet --chain vara-eth --network hoodi vara-eth:program top-up 0xMIRROR --amount 1
+vara-wallet --chain vara-eth --network hoodi vara-eth:subscribe router
+```
+
+Injected sends remain available with `--via injected`; use `--no-validate-signature` only for diagnostics when investigating validator-signature recovery. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
 
 ### `node`
 

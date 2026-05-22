@@ -4,6 +4,19 @@ import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { setOutputOptions, installGlobalErrorHandler, outputError, CliError, enableTiming, markStage, markTotal, fastExit } from './utils';
 import { disconnectApi } from './services/api';
+import { disconnectEthexeApi } from './services/vara-eth/api';
+import { registerVaraEthWalletCommand } from './commands/vara-eth-wallet';
+import { registerVaraEthMessageCommand } from './commands/vara-eth-message';
+import { registerVaraEthStateCommand } from './commands/vara-eth-state';
+import { registerVaraEthProgramCommand } from './commands/vara-eth-program';
+import { registerVaraEthMailboxCommand } from './commands/vara-eth-mailbox';
+import { registerVaraEthSubscribeCommand } from './commands/vara-eth-subscribe';
+import { registerVaraEthWvaraCommand } from './commands/vara-eth-wvara';
+import { registerVaraEthInheritorCommand } from './commands/vara-eth-inheritor';
+import { registerVaraEthValidatorsCommand } from './commands/vara-eth-validators';
+import { resolveVaraEthNetwork } from './chains/vara-eth/networks';
+import { resolveActionChain } from './utils/active-chain';
+import { readConfig } from './services/config';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
 import { registerBalanceCommand } from './commands/balance';
@@ -47,13 +60,15 @@ program
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
   .option('--mnemonic <mnemonic>', 'account mnemonic phrase')
   .option('--account <name>', 'wallet name to use')
+  .option('--passphrase <pass>', 'wallet passphrase (Vara.eth keystores; substrate side reads VARA_PASSPHRASE / .passphrase instead)')
   .option('--json', 'force JSON output')
   .option('--human', 'force human-readable output')
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
+  .option('--chain <name>', 'target chain: vara (default, substrate) or vara-eth (Vara.eth co-processor on Ethereum)')
   .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
-  .hook('preAction', () => {
+  .hook('preAction', (_thisCommand, actionCommand) => {
     const opts = program.opts();
     setOutputOptions({
       json: opts.json,
@@ -67,30 +82,52 @@ program
     if (opts.light) {
       process.env.VARA_LIGHT = '1';
     }
+    const config = readConfig();
+    const chain = resolveActionChain(actionCommand, opts.chain, config.defaultChain);
     if (opts.network) {
-      if (opts.ws) {
-        throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
+      if (chain === 'vara-eth') {
+        // Vara.eth path — resolve against the Vara.eth network registry.
+        if (opts.varaEthRpc) {
+          throw new CliError('Cannot use both --network and --vara-eth-rpc', 'CONFLICTING_OPTIONS');
+        }
+        if (opts.ethereumRpc) {
+          throw new CliError('Cannot use both --network and --ethereum-rpc', 'CONFLICTING_OPTIONS');
+        }
+        // resolveVaraEthNetwork throws NetworkNotDeployedError or CliError on bad input.
+        const preset = resolveVaraEthNetwork(opts.network);
+        // Stash the preset in env vars for resolveEthexeConfig and event persistence.
+        process.env.VARA_ETH_NETWORK_PRESET_NAME = opts.network;
+        process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = preset.varaEthRpc;
+        process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = preset.ethereumRpc;
+        if (preset.routerAddress) {
+          process.env.VARA_ETH_NETWORK_PRESET_ROUTER = preset.routerAddress;
+        } else {
+          delete process.env.VARA_ETH_NETWORK_PRESET_ROUTER;
+        }
+      } else {
+        // Substrate / Vara path — existing behaviour.
+        if (opts.ws) {
+          throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
+        }
+        const url = NETWORK_MAP[opts.network];
+        if (!url) {
+          throw new CliError(
+            `Unknown network "${opts.network}". Valid: ${Object.keys(NETWORK_MAP).join(', ')}`,
+            'INVALID_NETWORK',
+          );
+        }
+        process.env.VARA_WS = url;
       }
-      const url = NETWORK_MAP[opts.network];
-      if (!url) {
-        throw new CliError(
-          `Unknown network "${opts.network}". Valid: ${Object.keys(NETWORK_MAP).join(', ')}`,
-          'INVALID_NETWORK',
-        );
-      }
-      process.env.VARA_WS = url;
     }
   });
 
-// Register commands — Phase 1
+// Substrate / Vara commands
 registerInitCommand(program);
 registerWalletCommand(program);
 registerBalanceCommand(program);
 registerNodeCommand(program);
 registerFaucetCommand(program);
 registerConfigCommand(program);
-
-// Register commands — Phase 2
 registerMessageCommand(program);
 registerMailboxCommand(program);
 registerProgramCommand(program);
@@ -98,8 +135,6 @@ registerCodeCommand(program);
 registerStateCommand(program);
 registerWaitCommand(program);
 registerWatchCommand(program);
-
-// Register commands — Phase 3
 registerDiscoverCommand(program);
 registerCallCommand(program);
 registerIdlCommand(program);
@@ -110,26 +145,32 @@ registerVoucherCommand(program);
 registerEncodeCommand(program);
 registerSignCommand(program);
 registerTxCommand(program);
-
-// Register commands — Phase 4: Subscriptions & Event Store
 registerSubscribeCommand(program);
 registerInboxCommand(program);
 registerEventsCommand(program);
-
-// Register commands — Phase 5: DEX
 registerDexCommand(program);
 
-// Graceful shutdown (moved from api.ts so subscribe/keepAlive can override).
-// Subscribe commands don't go through main()'s finally: they await
-// keepAlive(...) which only resolves on signal/timeout, and keepAlive's
-// own cleanup runs disconnectApi() before the action returns. By the
-// time main() reaches finally, the WS is already torn down by them.
+// Vara.eth co-processor commands — prefixed `vara-eth:`.
+registerVaraEthWalletCommand(program);
+registerVaraEthMessageCommand(program);
+registerVaraEthStateCommand(program);
+registerVaraEthProgramCommand(program);
+registerVaraEthMailboxCommand(program);
+registerVaraEthSubscribeCommand(program);
+registerVaraEthWvaraCommand(program);
+registerVaraEthInheritorCommand(program);
+registerVaraEthValidatorsCommand(program);
+
+// Subscribe commands register their own signal handler with `prependOnceListener`
+// so it runs before this catch-all and tears down the subscription cleanly.
 process.on('SIGINT', () => {
   disconnectApi();
+  disconnectEthexeApi();
   fastExit(0);
 });
 process.on('SIGTERM', () => {
   disconnectApi();
+  disconnectEthexeApi();
   fastExit(0);
 });
 
@@ -142,6 +183,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     disconnectApi();
+    disconnectEthexeApi();
     markStage('shutdown');
     markTotal();
     fastExit(typeof process.exitCode === 'number' ? process.exitCode : 0);

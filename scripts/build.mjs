@@ -13,7 +13,22 @@ await build({
   minify: false,
   sourcemap: 'linked',
   legalComments: 'linked',
-  external: ['better-sqlite3', 'smoldot'],
+  // @vara-eth/api, viem, and kzg-wasm stay external so Node's runtime
+  // resolution can pick the CJS entry via the `main` field. Bundling them
+  // followed the ESM `exports.import` path, which dragged in kzg-wasm's ESM
+  // build that uses `import.meta.url` — unsupported in our CJS bundle.
+  external: [
+    'better-sqlite3',
+    'smoldot',
+    '@vara-eth/api',
+    'viem',
+    'kzg-wasm',
+    '@noble/ciphers',
+    '@noble/curves',
+    '@noble/hashes',
+    '@scure/bip32',
+    '@scure/bip39',
+  ],
   define: {
     'process.env.VARA_WALLET_VERSION': JSON.stringify(pkg.version),
   },

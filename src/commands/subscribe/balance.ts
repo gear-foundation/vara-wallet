@@ -20,7 +20,7 @@ export function registerBalanceCommand(parent: Command): void {
     .description('Subscribe to account balance changes')
     .argument('[address]', 'account address (defaults to configured account)')
     .action(async (address?: string) => {
-      const opts = parent.parent!.optsWithGlobals() as AccountOptions & { ws?: string; count?: string; timeout?: string; persist?: boolean };
+      const opts = parent.optsWithGlobals() as AccountOptions & { ws?: string; count?: string; timeout?: string; persist?: boolean };
       installGlobalTimeout(opts.timeout);
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;

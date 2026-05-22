@@ -210,21 +210,44 @@ async function executeVftTx(
   });
 }
 
+const VFT_INFO_FIELDS = ['Name', 'Symbol', 'Decimals', 'TotalSupply'] as const;
+
 /**
- * Try to query a single field from any service. Returns null on failure.
+ * Try to query a single VFT metadata field from any service.
  */
-async function queryTokenField(sails: Sails, fieldName: string): Promise<unknown | null> {
+async function queryVftInfoField(
+  sails: Sails,
+  fieldName: string,
+): Promise<{ found: boolean; value: unknown }> {
   for (const service of Object.values(sails.services)) {
     try {
       const query = service.queries[fieldName];
       if (query) {
-        return await query().call();
+        return { found: true, value: await query().call() };
       }
     } catch {
       // continue to next service
     }
   }
-  return null;
+  return { found: false, value: undefined };
+}
+
+export async function _queryVftInfoFieldsForTests(
+  sails: Sails,
+  fields: readonly string[] = VFT_INFO_FIELDS,
+): Promise<Record<string, unknown>> {
+  const settledFields = await Promise.all(fields.map(async (field) => ({
+    field,
+    ...(await queryVftInfoField(sails, field)),
+  })));
+
+  const results: Record<string, unknown> = {};
+  for (const result of settledFields) {
+    if (result.found) {
+      results[result.field] = result.value;
+    }
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,28 +292,9 @@ export function registerVftCommand(program: Command): void {
 
       verbose(`Querying VFT info for ${token.address}`);
 
-      const fields = ['Name', 'Symbol', 'Decimals', 'TotalSupply'] as const;
-      const results: Record<string, unknown> = {};
+      const results = await _queryVftInfoFieldsForTests(sails);
 
-      for (const service of Object.values(sails.services)) {
-        const pending: Array<{ field: string; promise: Promise<unknown> }> = [];
-        for (const field of fields) {
-          if (!(field in results) && service.queries[field]) {
-            pending.push({ field, promise: service.queries[field]().call() });
-          }
-        }
-        if (pending.length > 0) {
-          const settled = await Promise.allSettled(pending.map((p) => p.promise));
-          for (let i = 0; i < pending.length; i++) {
-            if (settled[i].status === 'fulfilled') {
-              results[pending[i].field] = (settled[i] as PromiseFulfilledResult<unknown>).value;
-            }
-          }
-        }
-        if (fields.every((f) => f in results)) break;
-      }
-
-      const [name, symbol, decimals, totalSupply] = fields.map((f) => results[f] ?? null);
+      const [name, symbol, decimals, totalSupply] = VFT_INFO_FIELDS.map((f) => results[f] ?? null);
 
       const dec = decimals !== null ? Number(decimals) : null;
 

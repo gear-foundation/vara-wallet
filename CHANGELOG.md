@@ -2,11 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.20.0] - 2026-05-19
 
-### Added
+One theme: **the wallet now drives Vara.eth as a first-class chain**. The substrate rail (`vara-wallet --chain vara`) is untouched. A parallel `vara-wallet --chain vara-eth` rail ships with read paths verified on mainnet + Hoodi, L1 write path verified on Hoodi, and an injected-tx persistence layer that survives kill/restart for terminal outcomes. Typed errors from `@vara-eth/api@0.5.0-rc.1` now surface as `MESSAGE_REVERTED` / `PROMISE_TIMEOUT` / `CHAIN_ID_MISMATCH` (etc.) directly in JSON output. Diagnostics flag `--no-validate-signature` lets operators bypass the validator-signature check on injected-path replies when triaging recovery failures.
+
+### Added — Vara.eth rail (Phase 3a + 3b)
+
+Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so the same CLI now drives both native Vara and Vara.eth. Substrate commands are untouched. Vara.eth commands live under the `vara-eth:` prefix, and root commands route through Vara.eth when `--chain vara-eth` is set.
+
+- **Wallet management** (`vara-eth:wallet create|import|list|show|keys`). New `~/.vara-wallet/wallets/<name>.vara-eth.json` files in standard Ethereum V3 keystore format (scrypt + AES-128-CTR), MetaMask / ethers / web3.js interoperable. Keys derive at BIP44 path `m/44'/60'/0'/0/0` from a generated 12-word BIP39 mnemonic, or from `--mnemonic` / `--private-key` on import. Files are written 0o600.
+- **Messaging** (`vara-eth:message send|reply`). `send` supports the injected-transaction path (signed off-chain, dispatched through a validator) and the direct L1 path via `--via eth`. `reply` goes through `Mirror.sendReply`.
+- **Program lifecycle** (`vara-eth:program deploy|top-up` plus root `program upload|deploy|top-up` under `--chain vara-eth`). Deploy runs the combined upload + create ceremony via `api.programs.deploy`.
+- **State inspection** (`vara-eth:state read`) and root `state read` under `--chain vara-eth`.
+- **Mailbox** (`vara-eth:mailbox claim`). Claims a value entry by `claimedId`.
+- **Event streams** (`vara-eth:subscribe program|router|blocks`). Emits NDJSON to stdout until SIGINT/SIGTERM.
+- **Phase 3b operations** (`vara-eth:wvara *`, `vara-eth:inheritor recover`, `vara-eth:validators *`) are implemented for wallet-side flows.
+
+### Added — supporting infrastructure
+
+- **Chain dispatch** at `src/chains/types.ts` (`Chain = 'vara' | 'vara-eth'`, `resolveChain()` with precedence `--chain` > `config.defaultChain` > `'vara'`).
+- **Wallet-side error taxonomy** at `src/shared/errors-eth/` (`KeystoreDecryptError`, `WrongPassphraseError`, `UnsupportedChainOperationError`). Lib-side typed errors stay in `@vara-eth/api` to preserve its adapter shape.
+- **Shared CLI argument validators** at `src/utils/eth-types.ts` (`asAddress`, `asHex`, `parseOptionalBigInt`) backed by viem's `isAddress` / `isHex`.
+- **Config** (`src/services/config.ts`) extended with `defaultChain`, `varaEthRpc`, `ethereumRpc`, `routerAddress` fields. All optional; env vars (`VARA_ETH_RPC`, `ETHEREUM_RPC`, `VARA_ETH_ROUTER`) take precedence.
+
+### Changed
+
+- **Node engine** bumped to `>=22` (already in `vs/node-22-bump`). Matches `@vara-eth/api`'s engine requirement.
+- **esbuild bundle externalises** the cryptographic + ESM-only deps (`@noble/ciphers`, `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `viem`, `kzg-wasm`, `@vara-eth/api`) so Node's runtime resolution picks the right CJS/ESM variant. Without this, esbuild followed the ESM `exports.import` path of `kzg-wasm` which uses `import.meta.url` and crashes in a CJS bundle.
+- **jest** configured to transform `@noble/*` and `@scure/*` ESM sources via ts-jest, and to stub `@vara-eth/api` (`src/__tests__/fixtures/vara-eth-api.stub.ts`) so unit tests don't drag the full viem + kzg-wasm tree into ts-jest.
+
+### Dependencies
+
+- Adds: `@noble/ciphers`, `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `kzg-wasm`, `viem` (aliased to `@vara-eth/viem@2.48.11` fork for EIP-7594 blob support), and `@vara-eth/api` (currently `file:vendor/vara-eth-api-0.5.0-rc.1.tgz` until the public npm publish).
+
+### Added — Milestone A + B (production-readiness)
+
+- **Global `--account` / `--passphrase` propagate** into every `vara-eth:*` subcommand. Substrate parity: pass the flag at the root command (`vara-wallet --account alice vara-eth:wvara approve …`) and the action handler picks it up via `cmd.optsWithGlobals()`. Previously the global was silently ignored and the resolver fell through to `config.defaultAccount`. Also adds `--passphrase` to the root command (Vara.eth keystores only; substrate side still reads `VARA_PASSPHRASE` env / `.passphrase` file).
+- **ReplyCode JSON output** now emits `{ tag, raw, reason }` (e.g. `{ tag: "Success.Auto", raw: "0x00000000", reason: "Success reply was created by system automatically." }`). The wallet extracts the tag through the existing `is*` getters. Lossless: `raw` is the underlying 4-byte hex.
+- **`MessageRevertedError`** flows from `@vara-eth/api@0.5.0-rc.1` through `formatError` to JSON output as `{ code: 'MESSAGE_REVERTED', error, reason, functionName }`. Contract reverts (e.g. `InitMessageNotCreatedAndCallerNotInitializer()`) now carry their decoded selector + the entry point that failed, so agents can branch on `code === 'MESSAGE_REVERTED'` instead of regex-matching `error.message`.
+- **`--no-validate-signature`** flag on `vara-eth:message send` for diagnostics. Passes `validateSignature: false` to the lib's `sendAndWait`, skipping the validator-signature recovery check on injected-path replies. Useful only for triaging signature-mismatch failures (currently surfacing on Hoodi). Production default remains `true`.
+
+### Added — bridged VFT token aliases (from main)
 
 - **Built-in bridged VFT token aliases.** New `token list` / `token resolve` commands expose official Vara bridge token program IDs for mainnet/testnet. Existing `vft` and `dex` token arguments now accept aliases like `usdc`, `wusdc`, `weth`, `wbtc`, `tokenized-vara`, `wvara`, and `wtvara` while preserving raw token program address support.
+
+### Changed — native query path performance
+
+- **Lower-overhead Sails, VFT, and DEX lookup helpers.** Method suggestions now reuse one deduped candidate list, Sails event-name resolution scans inherited services once per lookup, built-in token aliases resolve through a precomputed network-aware map, `vft info` runs independent per-field fallback chains in parallel, and `dex pairs` queries each repeated token symbol once before mapping symbols back to the original pair order.
+
+### Changed — Vara.eth chain token (breaking on this branch only — no prior release)
+
+- **Chain token renamed** `ethexe` → `vara-eth` everywhere user-visible: CLI flag (`--chain vara-eth`), command prefix (`vara-eth:*`), wallet file suffix (`.vara-eth.json`), config key (`defaultChain: 'vara-eth'`). No legacy shims — this branch never shipped to users with the old token. Internal types: `Chain = 'vara' | 'vara-eth'`.
+
+### Tests
+
+- 25 new unit tests in Phase 3a (V3 keystore, BIP39 + BIP32 HD, chain resolution, wallet-store migration).
+- 14 net-new unit tests in Milestone A (`vara-eth-opts-globals.test.ts` × 4, `reply-code-serializer.test.ts` × 10).
+- 3 net-new unit tests in Milestone B (`vara-eth-error-mapping.test.ts`).
+- 4 net-new unit tests in the lib (`@vara-eth/api`, `message-reverted.test.ts`).
+- Focused native-query regression coverage for token alias lookup, VFT info fallback behavior, and DEX pair symbol deduplication.
+- **Total wallet suite: 839 passing.**
+
+### Verified end-to-end (Hoodi)
+
+- Three real on-chain transactions through `vara-eth:message send --via eth` against deployed one-of-us Mirrors. See `docs/vara-eth-integration-report.md` §2.2 for tx hashes.
+- Read path against both Hoodi and Vara.eth mainnet (Router + WVARA balanceOf, Mirror state reads). See `docs/vara-eth-integration-report.md` §2.1.
 
 ## [0.19.0] - 2026-05-16
 

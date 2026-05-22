@@ -54,7 +54,7 @@ export function listWallets(defaultAccount?: string): WalletInfo[] {
     return [];
   }
 
-  const files = fs.readdirSync(walletsDir).filter((f) => f.endsWith('.json'));
+  const files = fs.readdirSync(walletsDir).filter((f) => f.endsWith('.json') && !f.endsWith('.vara-eth.json'));
   return files.map((file) => {
     const name = path.basename(file, '.json');
     try {

@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { getApi } from '../../services/api';
 import { initEventStore } from '../../services/event-store';
 import { verbose, addressToHex } from '../../utils';
+import { resolveActiveChain } from '../../utils/active-chain';
+import { subscribeVaraEthProgram } from '../vara-eth-actions';
 import {
   emitSystemEvent,
   emitAndPersist,
@@ -18,9 +20,25 @@ export function registerProgramCommand(parent: Command): void {
     .command('program')
     .description('Subscribe to program status changes')
     .argument('<programId>', 'program ID to watch (hex or SS58)')
-    .action(async (programId: string) => {
-      const opts = parent.parent!.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
+    .option('--from-block <n>', 'Vara.eth: back-fill from this Ethereum block number')
+    .action(async (programId: string, options: { fromBlock?: string }) => {
+      const opts = parent.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
       installGlobalTimeout(opts.timeout);
+      if (resolveActiveChain(parent) === 'vara-eth') {
+        installEpipeHandler();
+        let ka: ReturnType<typeof keepAlive>;
+        await subscribeVaraEthProgram(
+          programId,
+          { fromBlock: options.fromBlock, persist: opts.persist, count: opts.count, onLimit: () => ka?.triggerExit() },
+          async (unsub) => {
+            emitSystemEvent('subscribed', { subscription: 'program', chain: 'vara-eth', programId });
+            ka = keepAlive([unsub], { timeout: opts.timeout ? parseInt(opts.timeout, 10) : undefined });
+            await ka.promise;
+          },
+        );
+        return;
+      }
+
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;
       if (persist) initEventStore();

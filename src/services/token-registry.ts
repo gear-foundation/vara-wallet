@@ -138,6 +138,20 @@ export function normalizeTokenAlias(input: string): string {
   return input.trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-');
 }
 
+function tokenAliasKey(network: TokenNetwork, alias: string): string {
+  return `${network}:${normalizeTokenAlias(alias)}`;
+}
+
+const TOKEN_ALIAS_LOOKUP = new Map<string, KnownVftToken>();
+for (const token of KNOWN_VFT_TOKENS) {
+  for (const alias of token.aliases) {
+    const key = tokenAliasKey(token.network, alias);
+    if (!TOKEN_ALIAS_LOOKUP.has(key)) {
+      TOKEN_ALIAS_LOOKUP.set(key, token);
+    }
+  }
+}
+
 export function isTokenNetwork(value: string | undefined): value is TokenNetwork {
   return value === 'mainnet' || value === 'testnet';
 }
@@ -176,10 +190,7 @@ export function resolveTokenIdentifier(input: string, options: TokenResolveOptio
 
   const network = resolveTokenNetwork(options);
   const alias = normalizeTokenAlias(input);
-  const token = KNOWN_VFT_TOKENS.find((candidate) => (
-    candidate.network === network &&
-    candidate.aliases.some((candidateAlias) => normalizeTokenAlias(candidateAlias) === alias)
-  ));
+  const token = TOKEN_ALIAS_LOOKUP.get(tokenAliasKey(network, alias));
 
   if (!token) {
     throw new CliError(

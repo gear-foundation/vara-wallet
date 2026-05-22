@@ -1,5 +1,34 @@
 # TODOs
 
+## Vara.eth deploy persistence/resume hardening
+**Priority:** P2 | **Effort:** M (human ~2 days / CC ~45 min)
+
+Persist multi-transaction Vara.eth deploy ceremonies so interrupted code
+validation, create, and init-message phases can be resumed or audited after
+process restart. Current recovery JSON covers deploy-success/init-failure, but
+does not provide durable resume state.
+
+## Vara.eth Sails event, reply, and mailbox decode parity
+**Priority:** P2 | **Effort:** M (human ~2 days / CC ~45 min)
+
+Extend Vara.eth Sails decoding beyond root `discover` and `call` into event
+streams, mailbox-like surfaces, and richer reply/error payloads so the JSON
+shape matches native Vara where the rail semantics allow it.
+
+## Vara.eth owned-balance top-up parity
+**Priority:** P3 | **Effort:** M (human ~1 day / CC ~30 min)
+
+Add the owned-balance top-up flow exposed by upstream ethexe tooling. Keep
+`program top-up` focused on executable balance until the owner-balance semantics
+and output shape are explicit.
+
+## Vara.eth injected-path stabilization diagnostics
+**Priority:** P3 | **Effort:** S (human ~0.5 day / CC ~15 min)
+
+Stabilize the injected send path on Hoodi and add a diagnostic
+`--no-validate-signature` flag for controlled validator-signature triage.
+Do not enable the diagnostic by default.
+
 ## Program list --owner filter
 **Priority:** P3 | **Effort:** M (human ~2 days / CC ~30 min)
 

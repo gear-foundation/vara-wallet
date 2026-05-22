@@ -69,6 +69,67 @@ describe('formatError', () => {
     expect(formatError(err).code).toBe('INTERNAL_ERROR');
   });
 
+  it('decodes ERC-20 insufficient allowance contract reverts', () => {
+    const spender = '0000000000000000000000000a02812883cd818ddb0db60183609da2e7685a98';
+    const allowance = '0'.repeat(64);
+    const needed = '0'.repeat(63) + '1';
+    const err = new Error(`execution reverted: custom error 0xfb8f41b2: ${spender}${allowance}${needed}`);
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance(0x0a02812883Cd818ddB0dB60183609Da2e7685A98, 0, 1)',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+      spender: '0x0a02812883Cd818ddB0dB60183609Da2e7685A98',
+      allowance: '0',
+      needed: '1',
+    });
+  });
+
+  it('identifies known contract errors from selector-only viem messages', () => {
+    const err = new Error('The contract function reverted with the following signature:\n0xfb8f41b2');
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+    });
+  });
+
+  it('extracts contract reverts from nested error fields', () => {
+    const err = {
+      details: {
+        data: '0xfb8f41b2',
+      },
+    };
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+    });
+  });
+
+  it('does not recurse indefinitely on cyclic nested error fields', () => {
+    const err: Record<string, unknown> = {
+      shortMessage: 'The contract function reverted with the following signature:\n0xfb8f41b2',
+    };
+    err.details = err;
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+    });
+  });
+
   it('merges CliError meta into the output object', () => {
     const err = new CliError('boom', 'PROGRAM_ERROR', {
       reason: 'panic',

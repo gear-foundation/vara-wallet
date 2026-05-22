@@ -31,6 +31,11 @@ describe('token registry', () => {
     expect(resolveTokenIdentifier('USDC', { network: 'testnet' }).address).toBe(TESTNET_WUSDC);
   });
 
+  it('keeps alias lookup case-insensitive and network-specific', () => {
+    expect(resolveTokenIdentifier('WuSdC', { network: 'mainnet' }).address).toBe(MAINNET_WUSDC);
+    expect(resolveTokenIdentifier('wUsDc', { network: 'testnet' }).address).toBe(TESTNET_WUSDC);
+  });
+
   it('infers token network from explicit endpoint', () => {
     expect(resolveTokenNetwork({ ws: 'wss://testnet.vara.network' })).toBe('testnet');
     expect(resolveTokenIdentifier('wusdc', { ws: 'wss://testnet.vara.network' }).address).toBe(TESTNET_WUSDC);

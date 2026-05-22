@@ -1,6 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { Command } from 'commander';
+
+const mockOutput = jest.fn();
+jest.mock('../utils', () => ({
+  ...jest.requireActual('../utils'),
+  output: (data: unknown) => mockOutput(data),
+}));
 
 // Use a temp directory for config during tests
 let tmpDir: string;
@@ -9,6 +16,7 @@ const origEnv = process.env.VARA_WALLET_DIR;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vara-wallet-test-'));
   process.env.VARA_WALLET_DIR = tmpDir;
+  mockOutput.mockReset();
 });
 
 afterEach(() => {
@@ -22,6 +30,7 @@ afterEach(() => {
 
 // Import after env setup
 import { readConfig, writeConfig, updateConfig } from '../services/config';
+import { registerConfigCommand } from '../commands/config-cmd';
 
 describe('config persistence', () => {
   it('readConfig returns empty object when no config file exists', () => {
@@ -140,6 +149,88 @@ describe('--network integration', () => {
     expect(() => {
       if (ws && network) throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
     }).toThrow('Cannot use both --network and --ws');
+  });
+});
+
+describe('Vara.eth config network alias', () => {
+  function makeProgram(): Command {
+    const program = new Command();
+    program.exitOverride();
+    program.option('--chain <name>', 'target chain');
+    registerConfigCommand(program);
+    return program;
+  }
+
+  it('clears a deployed router address when switching the Vara.eth preset to local', async () => {
+    writeConfig({
+      defaultChain: 'vara-eth',
+      varaEthNetwork: 'hoodi',
+      varaEthRpc: 'wss://vara-eth-validator-1.gear-tech.io',
+      ethereumRpc: 'wss://hoodi-reth-rpc.gear-tech.io/ws',
+      routerAddress: '0xE549b0AfEdA978271FF7E712232B9F7f39A0b060',
+    });
+
+    await makeProgram().parseAsync(['--chain', 'vara-eth', 'config', 'set', 'network', 'local'], {
+      from: 'user',
+    });
+
+    const cfg = readConfig();
+    expect(cfg.varaEthNetwork).toBe('local');
+    expect(cfg.varaEthRpc).toBe('ws://127.0.0.1:9944');
+    expect(cfg.ethereumRpc).toBe('ws://127.0.0.1:8545');
+    expect(cfg.routerAddress).toBeUndefined();
+  });
+
+  it('direct varaNetwork setter also updates the native endpoint', async () => {
+    writeConfig({
+      varaNetwork: 'mainnet',
+      wsEndpoint: 'wss://rpc.vara.network',
+    });
+
+    await makeProgram().parseAsync(['config', 'set', 'varaNetwork', 'local'], {
+      from: 'user',
+    });
+
+    const cfg = readConfig();
+    expect(cfg.varaNetwork).toBe('local');
+    expect(cfg.wsEndpoint).toBe('ws://localhost:9944');
+  });
+
+  it('direct varaEthNetwork setter also syncs endpoints and clears stale local router', async () => {
+    writeConfig({
+      varaEthNetwork: 'hoodi',
+      varaEthRpc: 'wss://vara-eth-validator-1.gear-tech.io',
+      ethereumRpc: 'wss://hoodi-reth-rpc.gear-tech.io/ws',
+      routerAddress: '0xE549b0AfEdA978271FF7E712232B9F7f39A0b060',
+    });
+
+    await makeProgram().parseAsync(['config', 'set', 'varaEthNetwork', 'local'], {
+      from: 'user',
+    });
+
+    const cfg = readConfig();
+    expect(cfg.varaEthNetwork).toBe('local');
+    expect(cfg.varaEthRpc).toBe('ws://127.0.0.1:9944');
+    expect(cfg.ethereumRpc).toBe('ws://127.0.0.1:8545');
+    expect(cfg.routerAddress).toBeUndefined();
+  });
+
+  it('direct varaEthNetwork setter writes deployed router presets', async () => {
+    writeConfig({
+      varaEthNetwork: 'local',
+      varaEthRpc: 'ws://127.0.0.1:9944',
+      ethereumRpc: 'ws://127.0.0.1:8545',
+    });
+
+    await makeProgram().parseAsync(['config', 'set', 'varaEthNetwork', 'hoodi'], {
+      from: 'user',
+    });
+
+    const cfg = readConfig();
+    expect(cfg.varaEthNetwork).toBe('hoodi');
+    expect(cfg.varaEthRpc).toBe('wss://vara-eth-validator-1.gear-tech.io');
+    expect(cfg.ethereumRpc).toBe('wss://hoodi-reth-rpc.gear-tech.io/ws');
+    expect(cfg.routerAddress).toBe('0xE549b0AfEdA978271FF7E712232B9F7f39A0b060');
   });
 });
 

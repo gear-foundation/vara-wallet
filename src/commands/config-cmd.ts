@@ -1,13 +1,24 @@
 import { Command } from 'commander';
 import { readConfig, updateConfig, VaraWalletConfig, NETWORK_MAP } from '../services/config';
+import { resolveVaraEthNetwork } from '../chains/vara-eth/networks';
+import { resolveActiveChain } from '../utils/active-chain';
 import { output, CliError } from '../utils';
 
 const VALID_KEYS: Array<keyof VaraWalletConfig> = [
   'wsEndpoint',
   'defaultAccount',
+  'defaultVaraEthAccount',
   'dexFactoryAddress',
   'faucetUrl',
+  'defaultChain',
+  'varaNetwork',
+  'varaEthNetwork',
+  'varaEthRpc',
+  'ethereumRpc',
+  'routerAddress',
+  'varaEthValidatorPool',
 ];
+type ConfigKey = typeof VALID_KEYS[number];
 
 export function registerConfigCommand(program: Command): void {
   const config = program.command('config').description('Manage CLI configuration');
@@ -27,8 +38,13 @@ export function registerConfigCommand(program: Command): void {
       const cfg = readConfig();
 
       if (key === 'network') {
-        const network = Object.entries(NETWORK_MAP).find(([, url]) => url === cfg.wsEndpoint)?.[0];
-        output({ key: 'network', value: network ?? null });
+        const chain = resolveActiveChain(config);
+        if (chain === 'vara-eth') {
+          output({ key: 'varaEthNetwork', value: cfg.varaEthNetwork ?? null, chain });
+          return;
+        }
+        const network = cfg.varaNetwork ?? Object.entries(NETWORK_MAP).find(([, url]) => url === cfg.wsEndpoint)?.[0];
+        output({ key: 'varaNetwork', value: network ?? null, chain });
         return;
       }
 
@@ -48,17 +64,23 @@ export function registerConfigCommand(program: Command): void {
     .argument('<key>', `config key (${VALID_KEYS.join(', ')}) or "network"`)
     .argument('<value>', 'value to set')
     .action((key: string, value: string) => {
-      // Convenience alias: "config set network testnet" → wsEndpoint
       if (key === 'network') {
-        const url = NETWORK_MAP[value];
-        if (!url) {
-          throw new CliError(
-            `Unknown network "${value}". Valid networks: ${Object.keys(NETWORK_MAP).join(', ')}`,
-            'INVALID_NETWORK',
-          );
+        const chain = resolveActiveChain(config);
+        if (chain === 'vara-eth') {
+          const preset = setVaraEthNetworkPreset(value);
+          output({
+            key: 'varaEthNetwork',
+            value,
+            chain,
+            varaEthRpc: preset.varaEthRpc,
+            ethereumRpc: preset.ethereumRpc,
+            routerAddress: preset.routerAddress,
+          });
+          return;
         }
-        updateConfig({ wsEndpoint: url });
-        output({ key: 'wsEndpoint', value: url, network: value });
+
+        const url = setVaraNetworkPreset(value);
+        output({ key: 'varaNetwork', value, wsEndpoint: url, chain });
         return;
       }
 
@@ -69,9 +91,53 @@ export function registerConfigCommand(program: Command): void {
         );
       }
 
-      updateConfig({ [key]: value } as Partial<VaraWalletConfig>);
+      if (key === 'defaultChain' && value !== 'vara' && value !== 'vara-eth') {
+        throw new CliError('defaultChain must be "vara" or "vara-eth"', 'INVALID_CONFIG_VALUE');
+      }
+      if (key === 'varaNetwork') {
+        setVaraNetworkPreset(value);
+        output({ key, value });
+        return;
+      }
+      if (key === 'varaEthNetwork') {
+        setVaraEthNetworkPreset(value);
+        output({ key, value });
+        return;
+      }
+
+      updateConfig({ [key]: parseConfigValue(key as ConfigKey, value) } as Partial<VaraWalletConfig>);
       output({ key, value });
     });
 }
 
 export { NETWORK_MAP };
+
+function setVaraNetworkPreset(value: string): string {
+  const url = NETWORK_MAP[value];
+  if (!url) {
+    throw new CliError(
+      `Unknown Vara network "${value}". Valid networks: ${Object.keys(NETWORK_MAP).join(', ')}`,
+      'INVALID_NETWORK',
+    );
+  }
+  updateConfig({ wsEndpoint: url, varaNetwork: value as VaraWalletConfig['varaNetwork'] });
+  return url;
+}
+
+function setVaraEthNetworkPreset(value: string): ReturnType<typeof resolveVaraEthNetwork> {
+  const preset = resolveVaraEthNetwork(value);
+  updateConfig({
+    varaEthNetwork: value as VaraWalletConfig['varaEthNetwork'],
+    varaEthRpc: preset.varaEthRpc,
+    ethereumRpc: preset.ethereumRpc,
+    routerAddress: preset.routerAddress ?? undefined,
+  });
+  return preset;
+}
+
+function parseConfigValue(key: ConfigKey, value: string): unknown {
+  if (key === 'varaEthValidatorPool') {
+    return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+  }
+  return value;
+}

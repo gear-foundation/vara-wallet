@@ -511,6 +511,18 @@ export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
  */
 export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
   const idlString = await readIdlFile(idlPath);
+  return parseIdlStringAuto(idlString);
+}
+
+/**
+ * Parse an IDL string without requiring a Gear API connection.
+ *
+ * This is used by offline and non-Substrate paths that still need the
+ * canonical Sails parser/encoder/decoder surface, such as Vara.eth Mirror
+ * calls where the program address is an Ethereum address rather than a Gear
+ * ActorId.
+ */
+export async function parseIdlStringAuto(idlString: string): Promise<LoadedSails> {
   return tryPrimarySecondary(
     idlString,
     detectIdlVersion(idlString),
@@ -820,19 +832,26 @@ export function suggestMethod(
 ): string | null {
   const allServices = sails.services as Record<string, ServiceLike>;
   const lowerMethod = methodName.toLowerCase();
+  const candidates: Array<{ service: string; method: string; path: string }> = [];
 
-  // 1. Exact case-insensitive match anywhere.
-  // Dedupe per service: a name appearing in both functions and queries
-  // must count as a single candidate so the `length === 1` check holds.
-  const exactHits: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
     const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
     for (const candidateMethod of methodNames) {
-      if (candidateMethod.toLowerCase() === lowerMethod && !(svcName === serviceName && candidateMethod === methodName)) {
-        exactHits.push(`${svcName}/${candidateMethod}`);
-      }
+      candidates.push({
+        service: svcName,
+        method: candidateMethod,
+        path: `${svcName}/${candidateMethod}`,
+      });
     }
   }
+
+  // 1. Exact case-insensitive match anywhere.
+  const exactHits = candidates
+    .filter((candidate) => (
+      candidate.method.toLowerCase() === lowerMethod &&
+      !(candidate.service === serviceName && candidate.method === methodName)
+    ))
+    .map((candidate) => candidate.path);
   if (exactHits.length === 1) return exactHits[0];
   // Multiple exact matches across services → ambiguous, no hint.
   if (exactHits.length > 1) return null;
@@ -841,20 +860,17 @@ export function suggestMethod(
   const cap = 2;
   let bestDist = cap + 1;
   let bestMatches: string[] = [];
-  for (const [svcName, svc] of Object.entries(allServices)) {
-    const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
-    for (const candidateMethod of methodNames) {
-      // Skip identity (shouldn't happen — caller already checked the
-      // method is missing — but defensive).
-      if (svcName === serviceName && candidateMethod === methodName) continue;
-      const distance = levenshtein(methodName, candidateMethod, cap);
-      if (distance > cap) continue;
-      if (distance < bestDist) {
-        bestDist = distance;
-        bestMatches = [`${svcName}/${candidateMethod}`];
-      } else if (distance === bestDist) {
-        bestMatches.push(`${svcName}/${candidateMethod}`);
-      }
+  for (const candidate of candidates) {
+    // Skip identity (shouldn't happen — caller already checked the
+    // method is missing — but defensive).
+    if (candidate.service === serviceName && candidate.method === methodName) continue;
+    const distance = levenshtein(methodName, candidate.method, cap);
+    if (distance > cap) continue;
+    if (distance < bestDist) {
+      bestDist = distance;
+      bestMatches = [candidate.path];
+    } else if (distance === bestDist) {
+      bestMatches.push(candidate.path);
     }
   }
   if (bestMatches.length === 1) return bestMatches[0];
