@@ -21,6 +21,7 @@
     "dev": "ts-node --transpile-only src/app.ts",
     "test": "jest",
     "test:smoke": "npm run build && node scripts/smoke.mjs",
+    "test:vara-eth-sails:e2e": "node scripts/vara-eth-sails-e2e.mjs",
     "clean": "rm -rf dist",
     "dev:link:vara-eth": "node scripts/dev-link-vara-eth.mjs",
     "prepublishOnly": "npm run build"

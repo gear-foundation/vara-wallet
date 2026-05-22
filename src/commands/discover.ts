@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { loadSailsAuto, describeSailsProgram, getSailsVersion } from '../services/sails';
 import { output, verbose, addressToHex } from '../utils';
+import { resolveActiveChain } from '../utils/active-chain';
+import { outputVaraEthDiscover } from './vara-eth-actions';
 
 export function registerDiscoverCommand(program: Command): void {
   program
@@ -11,6 +13,11 @@ export function registerDiscoverCommand(program: Command): void {
     .option('--idl <path>', 'path to local IDL file')
     .action(async (programId: string, options: { idl?: string }) => {
       const opts = program.optsWithGlobals() as { ws?: string };
+      if (resolveActiveChain(program) === 'vara-eth') {
+        await outputVaraEthDiscover(programId, options);
+        return;
+      }
+
       const api = await getApi(opts.ws);
 
       const programIdHex = addressToHex(programId);

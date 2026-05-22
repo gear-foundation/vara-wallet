@@ -6,6 +6,7 @@ const mockPrepareAndSignPermitData = jest.fn();
 const mockExecutableBalanceTopUpWithPermit = jest.fn();
 const mockSendAndWaitForReceipt = jest.fn();
 const mockSetSigner = jest.fn();
+const mockDecimals = jest.fn();
 const mockGetMirrorClient = jest.fn();
 const mockResolveEthexeSigner = jest.fn();
 const mockOutput = jest.fn();
@@ -17,6 +18,7 @@ jest.mock('../services/vara-eth/api', () => ({
       setSigner: mockSetSigner,
       wvara: {
         prepareAndSignPermitData: mockPrepareAndSignPermitData,
+        decimals: mockDecimals,
       },
     },
   })),
@@ -46,6 +48,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockResolveEthexeSigner.mockResolvedValue({ signer: true });
   mockPrepareAndSignPermitData.mockResolvedValue({ signature: '0xsig' });
+  mockDecimals.mockResolvedValue(18);
   mockSendAndWaitForReceipt.mockResolvedValue({
     transactionHash: '0x' + '11'.repeat(32),
     blockNumber: 123n,
@@ -70,7 +73,7 @@ describe('vara-eth:program top-up', () => {
     expect(mockSendAndWaitForReceipt).toHaveBeenCalledTimes(1);
     expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
       mirror: MIRROR,
-      amount: '1',
+      amountRaw: '1',
       approval: 'permit',
       status: 'success',
     }));

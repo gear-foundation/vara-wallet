@@ -511,6 +511,18 @@ export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
  */
 export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
   const idlString = await readIdlFile(idlPath);
+  return parseIdlStringAuto(idlString);
+}
+
+/**
+ * Parse an IDL string without requiring a Gear API connection.
+ *
+ * This is used by offline and non-Substrate paths that still need the
+ * canonical Sails parser/encoder/decoder surface, such as Vara.eth Mirror
+ * calls where the program address is an Ethereum address rather than a Gear
+ * ActorId.
+ */
+export async function parseIdlStringAuto(idlString: string): Promise<LoadedSails> {
   return tryPrimarySecondary(
     idlString,
     detectIdlVersion(idlString),

@@ -1,5 +1,12 @@
 const ADDRESS = '0xabcdef0000000000000000000000000000000001';
 const TO = '0xabcdef0000000000000000000000000000000002';
+const TX_HASH = '0x' + '11'.repeat(32);
+const CODE_ID = '0x' + 'aa'.repeat(32);
+const MESSAGE_ID = '0x' + '22'.repeat(32);
+
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const mockGetBalance = jest.fn();
 const mockBalanceOf = jest.fn();
@@ -9,6 +16,9 @@ const mockTransfer = jest.fn();
 const mockPrepareAndSignPermitData = jest.fn();
 const mockExecutableBalanceTopUpWithPermit = jest.fn();
 const mockSendReply = jest.fn();
+const mockDeploy = jest.fn();
+const mockSendAndWait = jest.fn();
+const mockEstimateFee = jest.fn();
 const mockSetSigner = jest.fn();
 const mockGetAddress = jest.fn();
 const mockSendAndWaitForReceipt = jest.fn();
@@ -28,6 +38,26 @@ const mockApi = {
       prepareAndSignPermitData: mockPrepareAndSignPermitData,
     },
     setSigner: mockSetSigner,
+  },
+  programs: {
+    deploy: mockDeploy,
+    sendAndWait: mockSendAndWait,
+  },
+  fees: {
+    estimate: mockEstimateFee,
+  },
+  query: {
+    program: {
+      codeId: jest.fn(),
+    },
+    code: {
+      getOriginal: jest.fn(),
+    },
+  },
+  call: {
+    program: {
+      calculateReplyForHandle: jest.fn(),
+    },
   },
 };
 
@@ -64,10 +94,15 @@ const {
 
 import {
   outputVaraEthBalance,
+  outputVaraEthDiscover,
   outputVaraEthMessageReply,
+  outputVaraEthProgramUpload,
+  outputVaraEthSailsCall,
   outputVaraEthProgramTopUp,
   outputVaraEthWvaraTransfer,
 } from '../commands/vara-eth-actions';
+
+const FIXTURE_IDL = join(__dirname, 'fixtures', 'sample-v2.idl');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -80,7 +115,7 @@ beforeEach(() => {
   mockSymbol.mockResolvedValue('WVARA');
   mockGetAddress.mockResolvedValue(ADDRESS);
   mockSendAndWaitForReceipt.mockResolvedValue({
-    transactionHash: '0x' + '11'.repeat(32),
+    transactionHash: TX_HASH,
     blockNumber: 123n,
     status: 'success',
   });
@@ -88,6 +123,30 @@ beforeEach(() => {
   mockPrepareAndSignPermitData.mockResolvedValue({ signature: '0xsig' });
   mockExecutableBalanceTopUpWithPermit.mockResolvedValue({ sendAndWaitForReceipt: mockSendAndWaitForReceipt });
   mockSendReply.mockResolvedValue({ sendAndWaitForReceipt: mockSendAndWaitForReceipt });
+  mockDeploy.mockResolvedValue({
+    codeId: CODE_ID,
+    programAddress: TO,
+    codeValidationReceipt: { transactionHash: '0x' + '33'.repeat(32), blockNumber: 122n },
+    deploymentReceipt: { transactionHash: TX_HASH, blockNumber: 123n },
+  });
+  mockSendAndWait.mockResolvedValue({
+    messageId: MESSAGE_ID,
+    txHash: '0x' + '44'.repeat(32),
+    reply: {
+      payload: '0x',
+      value: 0n,
+      code: {
+        isSuccess: true,
+        asSuccess: { isManual: true, isAuto: false },
+        isError: false,
+        toBytes: () => new Uint8Array([0]),
+      },
+    },
+  });
+  mockEstimateFee.mockResolvedValue({
+    gas: 21_000n,
+    ethCostWei: 1_000_000n,
+  });
   mockGetMirrorClient.mockResolvedValue({
     executableBalanceTopUpWithPermit: mockExecutableBalanceTopUpWithPermit,
     sendReply: mockSendReply,
@@ -166,5 +225,82 @@ describe('Vara.eth shared actions', () => {
       repliedTo: messageId,
       status: 'success',
     }));
+  });
+
+  it('discovers a Vara.eth Sails program from a local IDL without substrate RPC', async () => {
+    await outputVaraEthDiscover(TO, { idl: FIXTURE_IDL });
+
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      programAddress: TO,
+      idlSource: 'local',
+      idlVersion: 'v2',
+      services: expect.objectContaining({
+        Demo: expect.objectContaining({
+          functions: expect.objectContaining({
+            Echo: expect.any(Object),
+          }),
+        }),
+      }),
+    }));
+    expect(mockApi.query.program.codeId).not.toHaveBeenCalled();
+  });
+
+  it('builds a root Vara.eth Sails function dry-run with fee estimate', async () => {
+    const hash = '0x' + '55'.repeat(32);
+
+    await outputVaraEthSailsCall(TO, 'Demo/Echo', {
+      idl: FIXTURE_IDL,
+      args: `["0xaabb","${hash}"]`,
+      value: '0',
+      dryRun: true,
+      estimate: true,
+    });
+
+    expect(mockEstimateFee).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'sendMessage',
+      mirror: TO,
+      value: 0n,
+    }));
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      kind: 'function',
+      programAddress: TO,
+      service: 'Demo',
+      method: 'Echo',
+      origin: ADDRESS,
+      via: 'eth',
+      encodedPayload: expect.stringMatching(/^0x/),
+      feeEstimate: {
+        gas: '21000',
+        ethCostWei: '1000000',
+        wvaraFee: null,
+      },
+      willSubmit: false,
+    }));
+  });
+
+  it('emits recovery JSON when deploy succeeds but init fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vara-wallet-eth-deploy-'));
+    const wasm = join(dir, 'program.wasm');
+    writeFileSync(wasm, Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+    mockSendAndWait.mockRejectedValueOnce(new Error('init reverted'));
+
+    await expect(outputVaraEthProgramUpload(wasm, {
+      account: 'hoodi-smoke',
+      payload: '0x1234',
+      value: '0',
+    })).rejects.toMatchObject({ code: 'VARA_ETH_INIT_FAILED' });
+
+    expect(mockDeploy).toHaveBeenCalledWith(expect.any(Uint8Array), {});
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      codeId: CODE_ID,
+      programAddress: TO,
+      deploymentTxHash: TX_HASH,
+      initStatus: 'failed',
+      initError: { error: 'init reverted' },
+    }));
+    rmSync(dir, { recursive: true, force: true });
   });
 });

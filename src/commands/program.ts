@@ -3,103 +3,19 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
-import { parseIdlFileAuto } from '../services/sails';
+import { resolveInitDescriptor } from '../services/sails-init';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex, classifyProgramError } from '../utils';
 import { resolveActiveChain } from '../utils/active-chain';
-import { outputVaraEthProgramInfo, outputVaraEthProgramList, outputVaraEthProgramTopUp } from './vara-eth-actions';
+import {
+  outputVaraEthProgramDeploy,
+  outputVaraEthProgramInfo,
+  outputVaraEthProgramList,
+  outputVaraEthProgramTopUp,
+  outputVaraEthProgramUpload,
+} from './vara-eth-actions';
 
-export interface InitOptions {
-  payload: string;
-  idl?: string;
-  init?: string;
-  args?: string;
-  argsFile?: string;
-}
-
-/**
- * Resolve the init payload AND the resolved constructor name (for
- * IDL-based encoding) or `null` (for raw `--payload` flows). Used by
- * the dry-run branches so the dry-run JSON can report the actually-
- * selected constructor name when --init was auto-resolved from a
- * single-ctor IDL.
- */
-export async function resolveInitDescriptor(options: InitOptions): Promise<{ payload: string; init: string | null }> {
-  if (!options.idl) {
-    if (options.init) throw new CliError('--init requires --idl', 'MISSING_IDL');
-    if (options.args) throw new CliError('--args requires --idl', 'MISSING_IDL');
-    if (options.argsFile) throw new CliError('--args-file requires --idl', 'MISSING_IDL');
-    return { payload: options.payload, init: null };
-  }
-
-  if (options.payload !== '0x') {
-    throw new CliError('--payload and --idl are mutually exclusive. Use --idl with --args for Sails encoding, or --payload for raw hex.', 'MUTUALLY_EXCLUSIVE_OPTIONS');
-  }
-
-  const sails = await parseIdlFileAuto(options.idl);
-  const ctors = sails.ctors;
-  if (!ctors || Object.keys(ctors).length === 0) {
-    throw new CliError('IDL has no constructors defined', 'NO_CONSTRUCTORS');
-  }
-
-  const ctorNames = Object.keys(ctors);
-  let initName = options.init;
-  if (!initName) {
-    if (ctorNames.length === 1) {
-      initName = ctorNames[0];
-      verbose(`Auto-selected constructor: ${initName}`);
-    } else {
-      throw new CliError(
-        `Multiple constructors found: ${ctorNames.join(', ')}. Use --init <name> to select one.`,
-        'MULTIPLE_CONSTRUCTORS',
-      );
-    }
-  }
-
-  const ctor = ctors[initName];
-  if (!ctor) {
-    throw new CliError(
-      `Constructor "${initName}" not found. Available: ${ctorNames.join(', ')}`,
-      'CONSTRUCTOR_NOT_FOUND',
-    );
-  }
-
-  let args: unknown[] = [];
-  if (options.args !== undefined || options.argsFile !== undefined) {
-    // Routed through the shared helper: enforces --args / --args-file
-    // mutual exclusion, handles stdin via '-', strips file paths from
-    // parse-error messages (file may contain test seeds).
-    const parsed = loadArgsJson({
-      args: options.args,
-      argsFile: options.argsFile,
-    });
-    const arity = ctor.args?.length ?? 0;
-    args = validateTopLevelArgs(parsed, arity, { kind: 'Constructor', name: initName });
-  }
-
-  const expectedArgs = ctor.args?.length ?? 0;
-  if (args.length !== expectedArgs) {
-    throw new CliError(
-      `Constructor "${initName}" expects ${expectedArgs} arg(s), got ${args.length}`,
-      'CONSTRUCTOR_ARG_MISMATCH',
-    );
-  }
-
-  verbose(`Encoding constructor "${initName}" with ${args.length} arg(s)`);
-  args = coerceArgsAuto(args, ctor.args || [], sails);
-  try {
-    return { payload: ctor.encodePayload(...args), init: initName };
-  } catch (err) {
-    throw new CliError(
-      `Failed to encode constructor args: ${err instanceof Error ? err.message : String(err)}`,
-      'ENCODE_ERROR',
-    );
-  }
-}
-
-export async function resolveInitPayload(options: InitOptions): Promise<string> {
-  return (await resolveInitDescriptor(options)).payload;
-}
+export { resolveInitDescriptor, resolveInitPayload, type InitOptions } from '../services/sails-init';
 
 export function registerProgramCommand(program: Command): void {
   const prog = program.command('program').description('Program operations');
@@ -117,6 +33,7 @@ export function registerProgramCommand(program: Command): void {
     .option('--value <value>', 'value to send (in VARA)', '0')
     .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
+    .option('--executable-balance <raw>', 'Vara.eth executable balance to fund the Mirror with (raw WVARA units)')
     .option('--metadata <path>', 'path to .meta.txt file')
     .option('--dry-run', 'encode the constructor payload and exit without uploading (no account required)')
     .action(async (wasmPath: string, options: {
@@ -129,12 +46,15 @@ export function registerProgramCommand(program: Command): void {
       value: string;
       units?: string;
       salt?: string;
+      executableBalance?: string;
       metadata?: string;
       dryRun?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
-        throw new CliError('program upload is not supported for --chain vara-eth yet. Use vara-eth:program deploy for the advanced rail-specific flow.', 'UNSUPPORTED_CHAIN_OPERATION');
+        assertSupportedVaraEthProgramOptions(options);
+        await outputVaraEthProgramUpload(wasmPath, { ...opts, ...options });
+        return;
       }
 
       if (!fs.existsSync(wasmPath)) {
@@ -230,6 +150,7 @@ export function registerProgramCommand(program: Command): void {
     .option('--value <value>', 'value to send (in VARA)', '0')
     .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
+    .option('--executable-balance <raw>', 'Vara.eth executable balance to fund the Mirror with (raw WVARA units)')
     .option('--metadata <path>', 'path to .meta.txt file')
     .option('--dry-run', 'encode the constructor payload and exit without creating (no account required)')
     .action(async (codeId: string, options: {
@@ -242,12 +163,15 @@ export function registerProgramCommand(program: Command): void {
       value: string;
       units?: string;
       salt?: string;
+      executableBalance?: string;
       metadata?: string;
       dryRun?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
-        throw new CliError('program deploy is not supported for --chain vara-eth yet. Use vara-eth:program deploy for the advanced rail-specific flow.', 'UNSUPPORTED_CHAIN_OPERATION');
+        assertSupportedVaraEthProgramOptions(options);
+        await outputVaraEthProgramDeploy(codeId, { ...opts, ...options });
+        return;
       }
 
       // Resolve init payload first — no account or network required, so
@@ -396,4 +320,13 @@ export function registerProgramCommand(program: Command): void {
       }
       await outputVaraEthProgramTopUp(programId, { ...opts, ...options });
     });
+}
+
+function assertSupportedVaraEthProgramOptions(options: { gasLimit?: string; metadata?: string }): void {
+  if (options.gasLimit || options.metadata) {
+    throw new CliError(
+      '--chain vara-eth program upload/deploy supports --idl, --init, --args, --args-file, --payload, --salt, --executable-balance, --dry-run, --value, --units, and account options',
+      'UNSUPPORTED_CHAIN_OPTION',
+    );
+  }
 }
