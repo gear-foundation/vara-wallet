@@ -461,6 +461,44 @@ async function withConcurrency<T>(
   return results;
 }
 
+interface DexPairSummary {
+  token0: string;
+  token1: string;
+  pairAddress: string;
+}
+
+export async function _enrichDexPairsWithSymbolsForTests<T extends DexPairSummary>(
+  pairs: readonly T[],
+  querySymbol: (tokenAddress: string) => Promise<string | null>,
+  concurrency = PAIRS_CONCURRENCY,
+): Promise<Array<T & { token0Symbol?: string; token1Symbol?: string }>> {
+  const uniqueTokenAddresses = new Map<string, string>();
+  for (const pair of pairs) {
+    for (const tokenAddress of [pair.token0, pair.token1]) {
+      const normalized = addressToHex(tokenAddress).toLowerCase();
+      if (!uniqueTokenAddresses.has(normalized)) {
+        uniqueTokenAddresses.set(normalized, normalized);
+      }
+    }
+  }
+
+  const symbolTasks = Array.from(uniqueTokenAddresses.values()).map((tokenAddress) => (
+    async () => [tokenAddress, await querySymbol(tokenAddress)] as const
+  ));
+  const symbolEntries = await withConcurrency(symbolTasks, concurrency);
+  const symbolsByToken = new Map<string, string | null>(symbolEntries);
+
+  return pairs.map((pair) => {
+    const token0Symbol = symbolsByToken.get(addressToHex(pair.token0).toLowerCase());
+    const token1Symbol = symbolsByToken.get(addressToHex(pair.token1).toLowerCase());
+    return {
+      ...pair,
+      ...(token0Symbol && { token0Symbol }),
+      ...(token1Symbol && { token1Symbol }),
+    };
+  });
+}
+
 function parseSlippage(value: string | undefined): number {
   if (value === undefined) return DEFAULT_SLIPPAGE_BPS;
   const bps = Number(value);
@@ -537,20 +575,10 @@ export function registerDexCommand(program: Command): void {
         pairs = pairs.slice(0, limit);
       }
 
-      // Enrich with token symbols (concurrency-limited, functional — no shared mutation)
-      const symbolTasks = pairs.flatMap((p) => [
-        () => queryTokenSymbol(api, p.token0),
-        () => queryTokenSymbol(api, p.token1),
-      ]);
-
-      const symbols = await withConcurrency(symbolTasks, PAIRS_CONCURRENCY);
-
-      // Merge symbols into pairs (symbols array is [pair0_sym0, pair0_sym1, pair1_sym0, ...])
-      const enrichedPairs = pairs.map((p, i) => ({
-        ...p,
-        ...(symbols[i * 2] && { token0Symbol: symbols[i * 2] }),
-        ...(symbols[i * 2 + 1] && { token1Symbol: symbols[i * 2 + 1] }),
-      }));
+      const enrichedPairs = await _enrichDexPairsWithSymbolsForTests(
+        pairs,
+        (tokenAddress) => queryTokenSymbol(api, tokenAddress),
+      );
 
       output({ factoryAddress, pairs: enrichedPairs });
     });

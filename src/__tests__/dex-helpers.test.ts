@@ -4,6 +4,7 @@ import {
   validateSlippage,
   validatePositiveAmount,
   computePriceImpact,
+  _enrichDexPairsWithSymbolsForTests,
 } from '../commands/dex';
 
 describe('DEX helpers', () => {
@@ -137,6 +138,38 @@ describe('DEX helpers', () => {
       const impactNum = parseFloat(impact);
       expect(impactNum).toBeGreaterThan(0);
       expect(impactNum).toBeLessThan(100);
+    });
+  });
+
+  describe('_enrichDexPairsWithSymbolsForTests', () => {
+    it('queries each repeated token symbol once and preserves pair order', async () => {
+      const tokenA = '0x' + 'aa'.repeat(32);
+      const tokenB = '0x' + 'bb'.repeat(32);
+      const tokenBUpper = '0x' + 'BB'.repeat(32);
+      const tokenC = '0x' + 'cc'.repeat(32);
+      const pairs = [
+        { token0: tokenA, token1: tokenB, pairAddress: '0x' + '01'.repeat(32) },
+        { token0: tokenBUpper, token1: tokenC, pairAddress: '0x' + '02'.repeat(32) },
+        { token0: tokenA, token1: tokenC, pairAddress: '0x' + '03'.repeat(32) },
+      ];
+      const calls: string[] = [];
+      const symbols = new Map([
+        [tokenA, 'A'],
+        [tokenB, 'B'],
+        [tokenC, 'C'],
+      ]);
+
+      const enriched = await _enrichDexPairsWithSymbolsForTests(pairs, async (address) => {
+        calls.push(address);
+        return symbols.get(address) ?? null;
+      });
+
+      expect(calls.sort()).toEqual([tokenA, tokenB, tokenC].sort());
+      expect(enriched).toEqual([
+        { ...pairs[0], token0Symbol: 'A', token1Symbol: 'B' },
+        { ...pairs[1], token0Symbol: 'B', token1Symbol: 'C' },
+        { ...pairs[2], token0Symbol: 'A', token1Symbol: 'C' },
+      ]);
     });
   });
 });

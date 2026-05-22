@@ -11,7 +11,11 @@
  * → '0'. A regression that drops the null check would break THIS test,
  * not just real-world VftExtension queries.
  */
-import { _formatVftAmountForTests } from '../commands/vft';
+import { Sails } from 'sails-js';
+import {
+  _formatVftAmountForTests,
+  _queryVftInfoFieldsForTests,
+} from '../commands/vft';
 
 describe('_formatVftAmountForTests (U8 null-safety)', () => {
   describe('null path (Option::None / no balance row)', () => {
@@ -80,5 +84,59 @@ describe('_formatVftAmountForTests (U8 null-safety)', () => {
       const out = _formatVftAmountForTests(null, null);
       expect(out.rawStr).not.toBe('null');
     });
+  });
+});
+
+describe('_queryVftInfoFieldsForTests', () => {
+  it('falls back per field when an earlier service query rejects', async () => {
+    const primaryName = jest.fn(() => ({
+      call: jest.fn(async () => {
+        throw new Error('primary unavailable');
+      }),
+    }));
+    const fallbackName = jest.fn(() => ({
+      call: jest.fn(async () => 'Fallback Token'),
+    }));
+    const symbol = jest.fn(() => ({
+      call: jest.fn(async () => 'FBT'),
+    }));
+    const decimals = jest.fn(() => ({
+      call: jest.fn(async () => 12),
+    }));
+    const totalSupply = jest.fn(() => ({
+      call: jest.fn(async () => 1000n),
+    }));
+
+    const sails = {
+      services: {
+        Primary: {
+          queries: {
+            Name: primaryName,
+            Symbol: symbol,
+            TotalSupply: totalSupply,
+          },
+          functions: {},
+        },
+        Metadata: {
+          queries: {
+            Name: fallbackName,
+            Decimals: decimals,
+          },
+          functions: {},
+        },
+      },
+    } as unknown as Sails;
+
+    await expect(_queryVftInfoFieldsForTests(sails)).resolves.toEqual({
+      Name: 'Fallback Token',
+      Symbol: 'FBT',
+      Decimals: 12,
+      TotalSupply: 1000n,
+    });
+    expect(primaryName).toHaveBeenCalledTimes(1);
+    expect(fallbackName).toHaveBeenCalledTimes(1);
+    expect(symbol).toHaveBeenCalledTimes(1);
+    expect(decimals).toHaveBeenCalledTimes(1);
+    expect(totalSupply).toHaveBeenCalledTimes(1);
   });
 });

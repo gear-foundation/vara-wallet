@@ -130,13 +130,22 @@ export function resolveEventName(
   sails: LoadedSails,
   name: string,
 ): { service: string; event: string } | null {
-  const all = listEventNames(sails);
   if (name.includes('/')) {
     const [svc, ev] = name.split('/', 2);
-    const match = all.find((x) => x.service === svc && x.event === ev);
-    return match ?? null;
+    for (const [serviceName, service] of allServicesIncludingExtends(sails)) {
+      if (serviceName === svc && ev in service.events) {
+        return { service: serviceName, event: ev };
+      }
+    }
+    return null;
   }
-  const matches = all.filter((x) => x.event === name);
+
+  const matches: Array<{ service: string; event: string }> = [];
+  for (const [serviceName, service] of allServicesIncludingExtends(sails)) {
+    if (name in service.events) {
+      matches.push({ service: serviceName, event: name });
+    }
+  }
   if (matches.length === 0) return null;
   if (matches.length === 1) return matches[0];
   const alternatives = matches.map((x) => `${x.service}/${x.event}`).join(', ');
