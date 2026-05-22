@@ -1,5 +1,5 @@
 /**
- * Ethexe account resolver.
+ * Vara.eth account resolver.
  *
  * Returns a `LocalSigner` for an unlocked V3 keystore. Passphrase resolution
  * follows the same priority as substrate, with an extra per-wallet fallback:
@@ -7,9 +7,8 @@
  * `~/.vara-wallet/passphrases/<wallet>.passphrase` >
  * `~/.vara-wallet/.passphrase` file.
  *
- * Unlike the substrate side, there is no "use mnemonic directly" path here —
- * Phase 3a always goes through a stored V3 keystore. Direct-mnemonic usage is
- * a Phase 4 follow-up.
+ * Unlike the substrate side, Vara.eth signing always goes through a stored V3
+ * keystore; direct mnemonic signing is not supported in this resolver.
  */
 
 import { readFileSync } from 'node:fs';
@@ -72,7 +71,7 @@ export function resolveEthexePassphrase(walletName: string, explicit?: string): 
 }
 
 /**
- * Resolves an Vara.eth account → `LocalSigner` ready to be passed into
+ * Resolves a Vara.eth account → `LocalSigner` ready to be passed into
  * {@link EthereumClient.setSigner}.
  *
  * @param publicClient - the viem PublicClient used by the Vara.eth api stack

@@ -11,6 +11,8 @@ import { subscribeVaraEthBlocks, subscribeVaraEthProgram, subscribeVaraEthRouter
 function awaitSignalAnd(unsubscribe: () => void): Promise<void> {
   return new Promise<void>((resolve) => {
     const onSignal = () => {
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
       unsubscribe();
       resolve();
     };

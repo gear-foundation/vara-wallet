@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 import { keccak256 } from 'viem';
 
@@ -284,12 +284,8 @@ export async function outputVaraEthProgramUpload(
   wasmPath: string,
   opts: VaraEthProgramDeployOptions,
 ): Promise<void> {
-  if (!existsSync(wasmPath)) {
-    throw new CliError(`WASM file not found: ${wasmPath}`, 'FILE_NOT_FOUND');
-  }
-
+  const code = readWasmFile(wasmPath);
   const initDesc = await resolveInitDescriptor(opts);
-  const code = new Uint8Array(readFileSync(wasmPath));
   const valueInfo = resolveVaraEthValue(opts.value, opts.units);
   const executableBalance = parseOptionalBigInt(opts.executableBalance, '--executable-balance') ?? 0n;
 
@@ -603,6 +599,7 @@ export async function subscribeVaraEthProgram(
   const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
   const persist = options.persist !== false;
   if (persist) initEventStore();
+  const network = persist ? resolveVaraEthEventNetwork() : null;
 
   const api = await getEthexeApi();
   verbose(`subscribing to program events ${mirror}`);
@@ -613,7 +610,7 @@ export async function subscribeVaraEthProgram(
       onEvent: (event) => {
         const data = { kind: 'program', chain: 'vara-eth', ...event };
         outputNdjson(data);
-        if (persist) persistVaraEthEvent('program', data, { programId: mirror });
+        if (persist) persistVaraEthEvent('program', data, { programId: mirror, network });
         if (options.count && ++seen >= Number(options.count)) {
           unsubscribe();
           options.onLimit?.();
@@ -633,6 +630,7 @@ export async function subscribeVaraEthRouter(
   const fromBlock = parseOptionalBigInt(options.fromBlock, '--from-block');
   const persist = options.persist !== false;
   if (persist) initEventStore();
+  const network = persist ? resolveVaraEthEventNetwork() : null;
 
   const api = await getEthexeApi();
   verbose('subscribing to router events');
@@ -642,7 +640,7 @@ export async function subscribeVaraEthRouter(
       onEvent: (event) => {
         const data = { kind: 'router', chain: 'vara-eth', ...event };
         outputNdjson(data);
-        if (persist) persistVaraEthEvent('router', data);
+        if (persist) persistVaraEthEvent('router', data, { network });
         if (options.count && ++seen >= Number(options.count)) {
           unsubscribe();
           options.onLimit?.();
@@ -661,6 +659,7 @@ export async function subscribeVaraEthBlocks(
 ): Promise<void> {
   const persist = options.persist !== false;
   if (persist) initEventStore();
+  const network = persist ? resolveVaraEthEventNetwork() : null;
 
   const api = await getEthexeApi();
   verbose('subscribing to blocks');
@@ -670,7 +669,7 @@ export async function subscribeVaraEthBlocks(
       onEvent: (header) => {
         const data = { kind: 'block', chain: 'vara-eth', ...header };
         outputNdjson(data);
-        if (persist) persistVaraEthEvent('block', data);
+        if (persist) persistVaraEthEvent('block', data, { network });
         if (options.count && ++seen >= Number(options.count)) {
           unsubscribe();
           options.onLimit?.();
@@ -901,8 +900,12 @@ async function resolveVaraEthTokenAmount(
   };
 }
 
-function persistVaraEthEvent(type: string, data: Record<string, unknown>, options: { programId?: Address } = {}): void {
-  const network = resolveVaraEthEventNetwork();
+function persistVaraEthEvent(
+  type: string,
+  data: Record<string, unknown>,
+  options: { programId?: Address; network?: string | null } = {},
+): void {
+  const network = 'network' in options ? options.network : resolveVaraEthEventNetwork();
   const blockNumber = extractNumber(data.blockNumber ?? data.number);
   const blockHash = extractString(data.blockHash ?? data.hash);
   const eventId = extractString(data.eventId ?? data.id ?? data.transactionHash ?? data.hash);
@@ -920,6 +923,17 @@ function persistVaraEthEvent(type: string, data: Record<string, unknown>, option
 
 function resolveVaraEthEventNetwork(): string | null {
   return process.env.VARA_ETH_NETWORK_PRESET_NAME ?? readConfig().varaEthNetwork ?? null;
+}
+
+function readWasmFile(wasmPath: string): Uint8Array {
+  try {
+    return new Uint8Array(readFileSync(wasmPath));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new CliError(`WASM file not found: ${wasmPath}`, 'FILE_NOT_FOUND');
+    }
+    throw err;
+  }
 }
 
 function extractNumber(value: unknown): number | null {

@@ -5,10 +5,10 @@
  * Backs `vara-eth:message send` and `vara-eth:program deploy` so an in-flight
  * promise can be resumed after process death via `--resume <txHash>`.
  *
- * Schema is the 16-column table from plan §3.7. WAL mode + `busy_timeout =
- * 5000ms` so the agent and a concurrent CLI invocation don't race fatally
- * on the same row. All status transitions wrap in `BEGIN IMMEDIATE` so we
- * never observe a half-written row from a parallel writer.
+ * WAL mode + `busy_timeout = 5000ms` keep concurrent CLI invocations from
+ * racing fatally on the same row. All status transitions wrap in
+ * `BEGIN IMMEDIATE` so we never observe a half-written row from a parallel
+ * writer.
  *
  * Cleanup of resolved/failed/expired rows runs at most once per process
  * startup, gated by a `metadata.last_cleanup_at` row.
@@ -89,9 +89,7 @@ export function initPromiseStore(): boolean {
   if (db) return true;
 
   const configDir = getConfigDir();
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  }
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
 
   try {
     db = new Database(dbPath());

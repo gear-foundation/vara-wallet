@@ -173,8 +173,13 @@ export function queryEvents(filters?: EventQueryFilters): EventRow[] {
     params.push(filters.destination);
   }
   if (filters?.chain) {
-    conditions.push('(chain = ? OR (chain IS NULL AND ? = ?))');
-    params.push(filters.chain, filters.chain, 'vara');
+    if (filters.chain === 'vara') {
+      conditions.push('(chain = ? OR chain IS NULL)');
+      params.push(filters.chain);
+    } else {
+      conditions.push('chain = ?');
+      params.push(filters.chain);
+    }
   }
   if (filters?.network) {
     conditions.push('network = ?');

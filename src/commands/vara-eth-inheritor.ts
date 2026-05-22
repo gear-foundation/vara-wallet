@@ -1,10 +1,9 @@
 /**
  * vara-eth:inheritor — recover locked value from an exited Mirror program.
  *
- * NOTE: `transferLockedValueToInheritor()` is not exposed by the MirrorClient in
- * @vara-eth/api@0.5.0-rc.0 (the vendored lib), but the function exists in the
- * Mirror.sol ABI.  We call it directly via viem's encodeFunctionData +
- * signer.sendTransaction to avoid depending on a higher version of the lib.
+ * NOTE: `transferLockedValueToInheritor()` is not exposed by MirrorClient, but
+ * the function exists in the Mirror.sol ABI. We call it directly via viem's
+ * encodeFunctionData + signer.sendTransaction.
  */
 
 import { Command } from 'commander';
@@ -61,8 +60,8 @@ export function registerVaraEthInheritorCommand(program: Command): void {
         );
       }
 
-      // Call transferLockedValueToInheritor via the raw signer — the method
-      // is not wrapped by MirrorClient in the vendored lib version.
+      // Call transferLockedValueToInheritor via the raw signer; MirrorClient
+      // does not wrap this recovery method.
       const data = encodeFunctionData({
         abi: TRANSFER_LOCKED_VALUE_ABI,
         functionName: 'transferLockedValueToInheritor',

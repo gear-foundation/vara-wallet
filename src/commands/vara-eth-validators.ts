@@ -53,7 +53,9 @@ export function registerVaraEthValidatorsCommand(program: Command): void {
       const config = readConfig();
       const pool = config.varaEthValidatorPool ?? [];
       const next = pool.filter((u) => u !== url);
-      updateConfig({ varaEthValidatorPool: next });
+      if (next.length !== pool.length) {
+        updateConfig({ varaEthValidatorPool: next });
+      }
       output({ chain: 'vara-eth', display: 'Vara.eth', action: 'removed', url, pool: next });
     });
 

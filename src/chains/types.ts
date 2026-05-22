@@ -2,7 +2,7 @@
  * Chain dispatch: which rail a command is operating on.
  *
  * `vara` — the substrate chain (default; existing @gear-js/api backend).
- * `vara-eth` — the Vara.eth co-processor on Ethereum (Phase 3).
+ * `vara-eth` — the Vara.eth co-processor on Ethereum.
  *
  * Precedence: explicit `--chain` > config.defaultChain > 'vara'.
  */

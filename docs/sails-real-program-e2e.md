@@ -5,11 +5,12 @@ This document is the manual end-to-end test for a real Sails program through
 
 1. Prove the current wallet can build, deploy, discover, and call a Sails
    program on the native Vara/Substrate rail.
-2. Reuse the same program as the acceptance fixture for the missing Vara.eth
-   Sails actions.
+2. Reuse the same program as the acceptance fixture for Vara.eth Sails deploy,
+   discover, query, and write flows.
 
-Keep this test manual until Vara.eth Sails support lands. It needs a local Gear
-node, a Rust/Sails toolchain, and a signing account with test funds.
+The native rail flow remains manual because it needs a local Gear node,
+Rust/Sails toolchain, and signing account with test funds. The Vara.eth flow has
+an opt-in live harness for Hoodi or a local ethexe stack.
 
 ## Current Support Boundary
 
@@ -22,13 +23,16 @@ Working today on `--chain vara`:
 - Execute function methods with `call`, including `--dry-run`, `--estimate`,
   gas calculation, reply decoding, and event decoding.
 
-Missing today on `--chain vara-eth`:
+Working today on `--chain vara-eth`:
 
 - Root `program upload` / `program deploy` parity for Vara.eth.
 - Sails IDL constructor encoding for `vara-eth:program deploy`.
 - Sails-aware `discover` without connecting to Substrate RPC.
 - Sails-aware `call` for queries and functions on a Mirror address.
-- Reply, error, event, and mailbox decoding for Vara.eth Sails payloads.
+
+Still outside this test's supported surface on `--chain vara-eth`:
+
+- Full event and mailbox Sails decode parity.
 
 ## Fixture Program
 

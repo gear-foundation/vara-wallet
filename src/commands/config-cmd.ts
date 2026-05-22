@@ -18,6 +18,7 @@ const VALID_KEYS: Array<keyof VaraWalletConfig> = [
   'routerAddress',
   'varaEthValidatorPool',
 ];
+type ConfigKey = typeof VALID_KEYS[number];
 
 export function registerConfigCommand(program: Command): void {
   const config = program.command('config').description('Manage CLI configuration');
@@ -73,9 +74,7 @@ export function registerConfigCommand(program: Command): void {
             ethereumRpc: preset.ethereumRpc,
             routerAddress: preset.routerAddress ?? undefined,
           };
-          updateConfig({
-            ...updates,
-          });
+          updateConfig(updates);
           output({
             key: 'varaEthNetwork',
             value,
@@ -119,14 +118,14 @@ export function registerConfigCommand(program: Command): void {
         resolveVaraEthNetwork(value);
       }
 
-      updateConfig({ [key]: parseConfigValue(key, value) } as Partial<VaraWalletConfig>);
+      updateConfig({ [key]: parseConfigValue(key as ConfigKey, value) } as Partial<VaraWalletConfig>);
       output({ key, value });
     });
 }
 
 export { NETWORK_MAP };
 
-function parseConfigValue(key: string, value: string): unknown {
+function parseConfigValue(key: ConfigKey, value: string): unknown {
   if (key === 'varaEthValidatorPool') {
     return value.split(',').map((entry) => entry.trim()).filter(Boolean);
   }

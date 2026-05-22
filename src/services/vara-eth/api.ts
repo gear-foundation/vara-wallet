@@ -2,8 +2,8 @@
  * Ethexe API singleton.
  *
  * Mirrors the substrate `services/api.ts` shape: a single cached `VaraEthApi`
- * instance per-process keyed by RPC endpoint. Falls back to env vars + config
- * file when no explicit endpoint is supplied.
+ * instance per-process keyed by RPC endpoint. Falls back through the CLI
+ * network preset, env vars, and config file when no explicit endpoint is supplied.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -27,7 +27,6 @@ import { resolveVaraEthNetwork } from '../../chains/vara-eth/networks';
 interface CacheEntry {
   api: VaraEthApi;
   ws: WsVaraEthProvider | HttpVaraEthProvider;
-  publicClient: PublicClient;
 }
 
 let cached: CacheEntry | null = null;
@@ -203,7 +202,7 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
 
   const api = await createVaraEthApi(ws, publicClient, cfg.routerAddress);
 
-  cached = { api, ws, publicClient };
+  cached = { api, ws };
   return api;
 }
 
