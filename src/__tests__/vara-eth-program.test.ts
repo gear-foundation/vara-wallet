@@ -78,4 +78,25 @@ describe('vara-eth:program top-up', () => {
       status: 'success',
     }));
   });
+
+  it('classifies invalid raw top-up amounts through CliError', async () => {
+    await expect(
+      makeProgram().parseAsync(['vara-eth:program', 'top-up', MIRROR, '--amount', 'not-a-number'], { from: 'user' }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_BIGINT',
+      meta: { field: '--amount', value: 'not-a-number' },
+    });
+  });
+
+  it('classifies invalid executable balances before dispatch', async () => {
+    await expect(
+      makeProgram().parseAsync(
+        ['vara-eth:program', 'deploy', 'program.wasm', '--executable-balance', 'not-a-number'],
+        { from: 'user' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'INVALID_BIGINT',
+      meta: { field: '--executable-balance', value: 'not-a-number' },
+    });
+  });
 });

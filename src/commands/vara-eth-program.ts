@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
 import { outputVaraEthProgramTopUp, outputVaraEthProgramUpload } from './vara-eth-actions';
+import { parseOptionalBigInt } from '../utils/eth-types';
 
 interface DeployOptions {
   salt?: string;
@@ -37,6 +38,7 @@ export function registerVaraEthProgramCommand(program: Command): void {
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (wasmPath: string, _options: DeployOptions, cmd: Command) => {
       const opts = cmd.optsWithGlobals() as DeployOptions;
+      parseOptionalBigInt(opts.executableBalance, '--executable-balance');
       await outputVaraEthProgramUpload(wasmPath, opts);
     });
 
@@ -52,6 +54,7 @@ export function registerVaraEthProgramCommand(program: Command): void {
       cmd: Command,
     ) => {
       const opts = cmd.optsWithGlobals() as { amount: string; account?: string; passphrase?: string };
-      await outputVaraEthProgramTopUp(mirrorArg, { ...opts, units: 'raw' });
+      const amount = parseOptionalBigInt(opts.amount, '--amount')!;
+      await outputVaraEthProgramTopUp(mirrorArg, { ...opts, amount: amount.toString(), units: 'raw' });
     });
 }

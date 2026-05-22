@@ -44,11 +44,33 @@ export class NoSailsIdlError extends VaraEthError {
   }
 }
 export class LocalSigner {}
-export const createVaraEthApi = async () => ({});
+let wsConnectImplementation: () => Promise<void> = async () => {};
+let createApiImplementation: () => Promise<unknown> = async () => ({});
+let wsDisconnectCalls = 0;
+
+export function __setWsConnectImplementationForTests(fn: () => Promise<void>): void {
+  wsConnectImplementation = fn;
+}
+
+export function __setCreateApiImplementationForTests(fn: () => Promise<unknown>): void {
+  createApiImplementation = fn;
+}
+
+export function __getWsDisconnectCallsForTests(): number {
+  return wsDisconnectCalls;
+}
+
+export function __resetVaraEthApiStubForTests(): void {
+  wsConnectImplementation = async () => {};
+  createApiImplementation = async () => ({});
+  wsDisconnectCalls = 0;
+}
+
+export const createVaraEthApi = async () => createApiImplementation();
 export class WsVaraEthProvider {
   constructor(_url: string) {}
-  async connect() {}
-  disconnect() {}
+  async connect() { return wsConnectImplementation(); }
+  disconnect() { wsDisconnectCalls += 1; }
 }
 export class HttpVaraEthProvider {
   constructor(_url?: string) {}

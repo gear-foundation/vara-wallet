@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveEthexeConfig } from '../services/vara-eth/api';
+import { disconnectEthexeApi, getEthexeApi, resolveEthexeConfig } from '../services/vara-eth/api';
 
 const LOCAL_PRESET = {
   varaEthRpc: 'ws://127.0.0.1:9944',
@@ -81,9 +81,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disconnectEthexeApi();
   process.chdir(origCwd);
   rmSync(tmpDir, { recursive: true, force: true });
   restoreEnv();
+  jest.useRealTimers();
+  const apiStub = require('@vara-eth/api') as {
+    __resetVaraEthApiStubForTests?: () => void;
+  };
+  apiStub.__resetVaraEthApiStubForTests?.();
 });
 
 describe('resolveEthexeConfig', () => {
@@ -149,5 +155,28 @@ describe('resolveEthexeConfig', () => {
     expect(cfg.varaEthRpc).toBe(LOCAL_PRESET.varaEthRpc);
     expect(cfg.ethereumRpc).toBe(LOCAL_PRESET.ethereumRpc);
     expect(cfg.routerAddress).toBe(DISCOVERED_ROUTER);
+  });
+});
+
+describe('getEthexeApi', () => {
+  it('classifies Vara.eth provider connect timeouts and disconnects the provider', async () => {
+    jest.useFakeTimers();
+    const apiStub = require('@vara-eth/api') as {
+      __setWsConnectImplementationForTests: (fn: () => Promise<void>) => void;
+      __getWsDisconnectCallsForTests: () => number;
+    };
+    apiStub.__setWsConnectImplementationForTests(() => new Promise(() => {}));
+
+    const promise = getEthexeApi({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    jest.advanceTimersByTime(10_000);
+
+    await expect(promise).rejects.toMatchObject({
+      code: 'TRANSPORT_ERROR',
+      meta: {
+        reason: 'timeout',
+        endpoint: LOCAL_PRESET.varaEthRpc,
+      },
+    });
+    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
   });
 });
