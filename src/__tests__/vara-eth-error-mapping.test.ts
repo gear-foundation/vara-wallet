@@ -19,6 +19,20 @@ describe('formatError on VaraEthError', () => {
     expect(out.error).toContain('reverted');
   });
 
+  it('keeps MessageRevertedError typed when its cause includes contract revert data', () => {
+    const err = new MessageRevertedError('InitMessageNotCreatedAndCallerNotInitializer()', 'sendMessage') as Error & {
+      cause?: unknown;
+    };
+    err.cause = { data: '0xdeadbeef' };
+
+    const out = formatError(err);
+
+    expect(out.code).toBe('MESSAGE_REVERTED');
+    expect(out.reason).toBe('InitMessageNotCreatedAndCallerNotInitializer()');
+    expect(out.functionName).toBe('sendMessage');
+    expect(out).not.toHaveProperty('contractError');
+  });
+
   it('surfaces other VaraEthError subclasses with their .code', () => {
     const out = formatError(new NoSailsIdlError());
     expect(out.code).toBe(VaraEthErrorCode.NoSailsIdl);

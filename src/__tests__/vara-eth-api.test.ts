@@ -23,6 +23,7 @@ const ENV_KEYS = [
   'VARA_ETH_ROUTER',
   'ETHEREUM_RPC',
   'VARA_ETH_RPC',
+  'VARA_ETH_NETWORK_PRESET_NAME',
   'VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC',
   'VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC',
   'VARA_ETH_NETWORK_PRESET_ROUTER',
@@ -96,11 +97,11 @@ describe('resolveEthexeConfig', () => {
     expect(cfg.routerAddress).toBe(DISCOVERED_ROUTER);
   });
 
-  it('keeps an explicit router address ahead of local discovery', () => {
+  it('keeps a direct router address option ahead of local discovery', () => {
     writeBroadcastArtifact(path.join(tmpDir, 'broadcast', 'DeployRouter.s.sol', '31337', 'run-latest.json'), FALLBACK_ROUTER);
     process.env.VARA_ETH_ROUTER = EXPLICIT_ROUTER;
 
-    const cfg = resolveEthexeConfig({ networkPreset: LOCAL_PRESET });
+    const cfg = resolveEthexeConfig({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
 
     expect(cfg.routerAddress).toBe(EXPLICIT_ROUTER);
   });
@@ -118,12 +119,28 @@ describe('resolveEthexeConfig', () => {
     expect(cfg.routerAddress).toBe(CLI_ROUTER);
   });
 
+  it('keeps the command-line network preset ahead of stale env endpoints', () => {
+    process.env.VARA_ETH_RPC = 'wss://stale-validator.example';
+    process.env.ETHEREUM_RPC = 'wss://stale-eth.example';
+    process.env.VARA_ETH_ROUTER = EXPLICIT_ROUTER;
+    process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = 'wss://hoodi-validator.example';
+    process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = 'wss://hoodi-eth.example';
+    process.env.VARA_ETH_NETWORK_PRESET_ROUTER = CLI_ROUTER;
+
+    const cfg = resolveEthexeConfig();
+
+    expect(cfg.varaEthRpc).toBe('wss://hoodi-validator.example');
+    expect(cfg.ethereumRpc).toBe('wss://hoodi-eth.example');
+    expect(cfg.routerAddress).toBe(CLI_ROUTER);
+  });
+
   it('does not fall back to a persisted router when the command-line preset needs local discovery', () => {
     writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify({
       varaEthNetwork: 'mainnet',
       routerAddress: FALLBACK_ROUTER,
     }) + '\n');
     writeBroadcastArtifact(path.join(tmpDir, 'broadcast', 'DeployRouter.s.sol', '31337', 'run-latest.json'), DISCOVERED_ROUTER);
+    process.env.VARA_ETH_ROUTER = EXPLICIT_ROUTER;
     process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = LOCAL_PRESET.varaEthRpc;
     process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = LOCAL_PRESET.ethereumRpc;
 

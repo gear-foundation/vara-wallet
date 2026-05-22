@@ -902,7 +902,7 @@ async function resolveVaraEthTokenAmount(
 }
 
 function persistVaraEthEvent(type: string, data: Record<string, unknown>, options: { programId?: Address } = {}): void {
-  const network = readConfig().varaEthNetwork ?? null;
+  const network = resolveVaraEthEventNetwork();
   const blockNumber = extractNumber(data.blockNumber ?? data.number);
   const blockHash = extractString(data.blockHash ?? data.hash);
   const eventId = extractString(data.eventId ?? data.id ?? data.transactionHash ?? data.hash);
@@ -918,12 +918,21 @@ function persistVaraEthEvent(type: string, data: Record<string, unknown>, option
   });
 }
 
+function resolveVaraEthEventNetwork(): string | null {
+  return process.env.VARA_ETH_NETWORK_PRESET_NAME ?? readConfig().varaEthNetwork ?? null;
+}
+
 function extractNumber(value: unknown): number | null {
   if (typeof value === 'number') return value;
   if (typeof value === 'bigint') return Number(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
   return null;
 }
+
+export const __testing = {
+  persistVaraEthEvent,
+  resolveVaraEthEventNetwork,
+};
 
 function extractString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;

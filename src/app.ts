@@ -95,7 +95,8 @@ program
         }
         // resolveVaraEthNetwork throws NetworkNotDeployedError or CliError on bad input.
         const preset = resolveVaraEthNetwork(opts.network);
-        // Stash the preset in env vars for resolveEthexeConfig to pick up (lowest precedence).
+        // Stash the preset in env vars for resolveEthexeConfig and event persistence.
+        process.env.VARA_ETH_NETWORK_PRESET_NAME = opts.network;
         process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = preset.varaEthRpc;
         process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = preset.ethereumRpc;
         if (preset.routerAddress) {

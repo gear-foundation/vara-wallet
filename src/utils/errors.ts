@@ -130,9 +130,6 @@ export function formatError(error: unknown): { error: string; code: string } & E
     return transport.meta ? { ...transport.meta, ...base } : base;
   }
 
-  const contractRevert = classifyContractRevert(error);
-  if (contractRevert) return contractRevert;
-
   // Typed errors from @vara-eth/api carry stable string codes
   // (`MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, …); surface them directly so
   // wallet consumers don't have to regex on .message. Duck-typed to avoid
@@ -153,6 +150,9 @@ export function formatError(error: unknown): { error: string; code: string } & E
     }
     return base;
   }
+
+  const contractRevert = classifyContractRevert(error);
+  if (contractRevert) return contractRevert;
 
   if (error instanceof Error) {
     const message = sanitizeErrorMessage(error.message);

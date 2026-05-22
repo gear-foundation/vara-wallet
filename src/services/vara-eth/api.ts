@@ -36,7 +36,7 @@ interface EthexeApiOptions {
   varaEthRpc?: string;
   ethereumRpc?: string;
   routerAddress?: Address;
-  /** Resolved Vara.eth network preset (from --network flag, lowest precedence). */
+  /** Resolved Vara.eth network preset from --network. */
   networkPreset?: { varaEthRpc: string; ethereumRpc: string; routerAddress: `0x${string}` | null };
 }
 
@@ -129,8 +129,8 @@ function discoverLocalRouterAddress(root = process.cwd()): Address | undefined {
 }
 
 /**
- * Resolves the Vara.eth endpoint stack from explicit options → env vars →
- * command-line network preset → config → config network preset.
+ * Resolves the Vara.eth endpoint stack from explicit options → command-line
+ * network preset → env vars → config → config network preset.
  *
  * Required: `varaEthRpc` (WS), `ethereumRpc` (WS), `routerAddress` (0x-hex).
  * Throws {@link CliError} with `MISSING_ETHEXE_CONFIG` if any are missing.
@@ -150,15 +150,18 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
     options.networkPreset?.routerAddress ??
     (process.env.VARA_ETH_NETWORK_PRESET_ROUTER as Address | undefined);
 
-  const varaEthRpc = options.varaEthRpc ?? process.env.VARA_ETH_RPC ?? cliPresetVaraEthRpc ?? config.varaEthRpc ?? configPreset?.varaEthRpc;
-  const ethereumRpc = options.ethereumRpc ?? process.env.ETHEREUM_RPC ?? cliPresetEthereumRpc ?? config.ethereumRpc ?? configPreset?.ethereumRpc;
-  let routerAddress = options.routerAddress ?? (process.env.VARA_ETH_ROUTER as Address | undefined);
+  const varaEthRpc = options.varaEthRpc ?? cliPresetVaraEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? configPreset?.varaEthRpc;
+  const ethereumRpc = options.ethereumRpc ?? cliPresetEthereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? configPreset?.ethereumRpc;
+  let routerAddress = options.routerAddress;
 
   if (!routerAddress && hasCliPreset) {
     routerAddress = cliPresetRouter ?? undefined;
   }
   if (!routerAddress && !hasCliPreset) {
-    routerAddress = config.routerAddress ?? configPreset?.routerAddress ?? undefined;
+    routerAddress = (process.env.VARA_ETH_ROUTER as Address | undefined)
+      ?? config.routerAddress
+      ?? configPreset?.routerAddress
+      ?? undefined;
   }
 
   if (!routerAddress && (
