@@ -34,8 +34,13 @@ Rail-specific workflows remain available under `vara-eth:*`:
 
 - V3 Ethereum keystores live at
   `~/.vara-wallet/wallets/<name>.vara-eth.json`.
+- Unqualified `wallet list` is a full inventory and includes both native Vara
+  and Vara.eth rows with a `chain` field; explicit `--chain vara` or
+  `--chain vara-eth` filters wallet lists to one rail.
 - Network presets are `mainnet`, `hoodi`, and `local`; Hoodi is the public
   Vara.eth testnet.
+- Direct `config set varaNetwork …` and `config set varaEthNetwork …` calls
+  update the endpoint fields that actually drive future connections.
 - `@vara-eth/api@0.5.0-rc.1` is vendored through
   `vendor/vara-eth-api-0.5.0-rc.1.tgz`.
 - `vara-eth:message send` supports `--via eth` and `--via injected`; prefer
@@ -51,7 +56,7 @@ Rail-specific workflows remain available under `vara-eth:*`:
 
 Local verification on this branch:
 
-- Full Jest suite: 78 suites / 839 tests passing.
+- Full Jest suite: 78 suites / 853 tests passing.
 - `npm run build` passes.
 - `npm run test:smoke` passes.
 - Manual local Gear/Sails smoke deployed a demo Sails program, discovered it,

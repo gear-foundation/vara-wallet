@@ -57,6 +57,8 @@ node dist/app.js wallet list
 
 The wallet is encrypted automatically. A random passphrase is generated and stored at `~/.vara-wallet/.passphrase` with `0600` permissions. You never see or handle the passphrase — it's read from the file transparently.
 
+`wallet list` without an explicit `--chain` is an inventory view: it lists native Vara and Vara.eth wallets with a `chain` field on each row. Use `--chain vara wallet list` or `--chain vara-eth wallet list` when a workflow needs a chain-specific wallet list.
+
 ## Core Patterns
 
 ### Reading data (no account needed)
@@ -502,7 +504,9 @@ vara-wallet --chain vara-eth --network hoodi discover 0xMIRROR --idl ./program.i
 vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args '[]' --idl ./program.idl
 ```
 
-Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
+Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. They appear in unqualified `wallet list` with `chain: "vara-eth"`, but native commands must not treat those files as Substrate wallets. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
+
+Direct config setters are preset-aware: `config set varaNetwork <mainnet|testnet|local>` also updates `wsEndpoint`, and `config set varaEthNetwork <mainnet|hoodi|local>` also updates the Vara.eth RPC, Ethereum RPC, and Router fields. For Vara.eth Sails read calls, zero-address origin fallback is only for no selected account; a missing or corrupt selected wallet must fail instead of silently querying as zero address.
 
 For endpoints and canonical Router/WVARA addresses, see `docs/vara-eth-networks.md`. For the manual Sails deploy/discover/call E2E, see `docs/sails-real-program-e2e.md`.
 
