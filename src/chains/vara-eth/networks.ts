@@ -15,7 +15,7 @@ export interface VaraEthNetworkConfig {
 /**
  * Hand-curated Vara.eth network presets. Addresses verified against the
  * canonical deployment announcement on 2026-05-17 — see CHANGELOG and
- * docs/vara-eth-testnet.md for source. Bootnode and validator P2P peer IDs
+ * docs/vara-eth-networks.md for source. Bootnode and validator P2P peer IDs
  * are intentionally NOT encoded here: the wallet speaks RPC, not libp2p.
  */
 export const VARA_ETH_NETWORKS: Readonly<Record<VaraEthNetwork, VaraEthNetworkConfig>> = {

@@ -79,8 +79,9 @@ export function initEventStore(): void {
       );
     `);
 
-    ensureColumn('events', 'chain', 'TEXT');
-    ensureColumn('events', 'network', 'TEXT');
+    const eventColumns = tableColumns('events');
+    ensureColumn(eventColumns, 'events', 'chain', 'TEXT');
+    ensureColumn(eventColumns, 'events', 'network', 'TEXT');
 
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
@@ -194,11 +195,17 @@ export function queryEvents(filters?: EventQueryFilters): EventRow[] {
   return db.prepare(sql).all(...params) as EventRow[];
 }
 
-function ensureColumn(table: string, column: string, type: string): void {
-  if (!db) return;
+function tableColumns(table: string): Set<string> {
+  if (!db) return new Set();
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (columns.some((entry) => entry.name === column)) return;
+  return new Set(columns.map((entry) => entry.name));
+}
+
+function ensureColumn(columns: Set<string>, table: string, column: string, type: string): void {
+  if (!db) return;
+  if (columns.has(column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  columns.add(column);
 }
 
 function bigintReplacer(_key: string, value: unknown): unknown {

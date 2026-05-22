@@ -20,7 +20,7 @@ Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so th
 
 ### Added — supporting infrastructure
 
-- **Chain dispatch** at `src/chains/types.ts` (`Chain = 'vara' | 'ethexe'`, `resolveChain()` with precedence `--chain` > `config.defaultChain` > `'vara'`).
+- **Chain dispatch** at `src/chains/types.ts` (`Chain = 'vara' | 'vara-eth'`, `resolveChain()` with precedence `--chain` > `config.defaultChain` > `'vara'`).
 - **Wallet-side error taxonomy** at `src/shared/errors-eth/` (`KeystoreDecryptError`, `WrongPassphraseError`, `UnsupportedChainOperationError`). Lib-side typed errors stay in `@vara-eth/api` to preserve its adapter shape.
 - **Shared CLI argument validators** at `src/utils/eth-types.ts` (`asAddress`, `asHex`, `parseOptionalBigInt`) backed by viem's `isAddress` / `isHex`.
 - **Config** (`src/services/config.ts`) extended with `defaultChain`, `varaEthRpc`, `ethereumRpc`, `routerAddress` fields. All optional; env vars (`VARA_ETH_RPC`, `ETHEREUM_RPC`, `VARA_ETH_ROUTER`) take precedence.
