@@ -139,25 +139,32 @@ export function registerWalletCommand(program: Command): void {
     .command('list')
     .description('List all wallets')
     .action(() => {
-      if (resolveActiveChain(wallet) === 'vara-eth') {
+      if (hasExplicitChainOption(wallet) && resolveActiveChain(wallet) === 'vara-eth') {
         const config = readConfig();
-        const wallets = listEthexeWallets().map((name) => {
-          const ks = loadEthexeWallet(name);
-          return {
-            name,
-            address: `0x${ks.address}`,
-            default: config.defaultVaraEthAccount === name,
-            kdf: ks.crypto.kdf,
-          };
-        });
+        const wallets = listVaraEthWalletRows(config.defaultVaraEthAccount);
         output({ wallets, legacyWallets: listLegacyVaraWalletNames(), defaultAccount: config.defaultVaraEthAccount ?? null });
         return;
       }
 
       const config = readConfig();
-      const wallets = listWallets(config.defaultAccount);
+      const nativeWallets = listWallets(config.defaultAccount);
 
-      output(wallets);
+      if (hasExplicitChainOption(wallet)) {
+        output(nativeWallets);
+        return;
+      }
+
+      output([
+        ...nativeWallets.map((walletInfo) => ({ chain: 'vara' as const, ...walletInfo })),
+        ...listVaraEthWalletRows(config.defaultVaraEthAccount).map((walletInfo) => ({
+          chain: 'vara-eth' as const,
+          name: walletInfo.name,
+          address: walletInfo.address,
+          isDefault: walletInfo.default,
+          encrypted: true,
+          kdf: walletInfo.kdf,
+        })),
+      ]);
     });
 
   wallet
@@ -404,4 +411,30 @@ async function exportVaraEthPrivateKey(name: string, options: { passphrase?: str
 
 function resolveNewWalletPassphrase(explicit?: string): string {
   return explicit || readPassphraseFile() || process.env.VARA_PASSPHRASE || ensurePassphraseFile();
+}
+
+function hasExplicitChainOption(command: Command): boolean {
+  let current: Command | undefined = command;
+  while (current) {
+    if (current.getOptionValueSource?.('chain') === 'cli') return true;
+    current = current.parent ?? undefined;
+  }
+  return false;
+}
+
+function listVaraEthWalletRows(defaultAccount?: string): Array<{
+  name: string;
+  address: `0x${string}`;
+  default: boolean;
+  kdf: string;
+}> {
+  return listEthexeWallets().map((name) => {
+    const ks = loadEthexeWallet(name);
+    return {
+      name,
+      address: `0x${ks.address}`,
+      default: defaultAccount === name,
+      kdf: ks.crypto.kdf,
+    };
+  });
 }

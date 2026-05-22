@@ -67,14 +67,7 @@ export function registerConfigCommand(program: Command): void {
       if (key === 'network') {
         const chain = resolveActiveChain(config);
         if (chain === 'vara-eth') {
-          const preset = resolveVaraEthNetwork(value);
-          const updates: Partial<VaraWalletConfig> = {
-            varaEthNetwork: value as VaraWalletConfig['varaEthNetwork'],
-            varaEthRpc: preset.varaEthRpc,
-            ethereumRpc: preset.ethereumRpc,
-            routerAddress: preset.routerAddress ?? undefined,
-          };
-          updateConfig(updates);
+          const preset = setVaraEthNetworkPreset(value);
           output({
             key: 'varaEthNetwork',
             value,
@@ -86,14 +79,7 @@ export function registerConfigCommand(program: Command): void {
           return;
         }
 
-        const url = NETWORK_MAP[value];
-        if (!url) {
-          throw new CliError(
-            `Unknown network "${value}". Valid networks: ${Object.keys(NETWORK_MAP).join(', ')}`,
-            'INVALID_NETWORK',
-          );
-        }
-        updateConfig({ wsEndpoint: url, varaNetwork: value as VaraWalletConfig['varaNetwork'] });
+        const url = setVaraNetworkPreset(value);
         output({ key: 'varaNetwork', value, wsEndpoint: url, chain });
         return;
       }
@@ -108,14 +94,15 @@ export function registerConfigCommand(program: Command): void {
       if (key === 'defaultChain' && value !== 'vara' && value !== 'vara-eth') {
         throw new CliError('defaultChain must be "vara" or "vara-eth"', 'INVALID_CONFIG_VALUE');
       }
-      if (key === 'varaNetwork' && !NETWORK_MAP[value]) {
-        throw new CliError(
-          `Unknown Vara network "${value}". Valid networks: ${Object.keys(NETWORK_MAP).join(', ')}`,
-          'INVALID_NETWORK',
-        );
+      if (key === 'varaNetwork') {
+        setVaraNetworkPreset(value);
+        output({ key, value });
+        return;
       }
       if (key === 'varaEthNetwork') {
-        resolveVaraEthNetwork(value);
+        setVaraEthNetworkPreset(value);
+        output({ key, value });
+        return;
       }
 
       updateConfig({ [key]: parseConfigValue(key as ConfigKey, value) } as Partial<VaraWalletConfig>);
@@ -124,6 +111,29 @@ export function registerConfigCommand(program: Command): void {
 }
 
 export { NETWORK_MAP };
+
+function setVaraNetworkPreset(value: string): string {
+  const url = NETWORK_MAP[value];
+  if (!url) {
+    throw new CliError(
+      `Unknown Vara network "${value}". Valid networks: ${Object.keys(NETWORK_MAP).join(', ')}`,
+      'INVALID_NETWORK',
+    );
+  }
+  updateConfig({ wsEndpoint: url, varaNetwork: value as VaraWalletConfig['varaNetwork'] });
+  return url;
+}
+
+function setVaraEthNetworkPreset(value: string): ReturnType<typeof resolveVaraEthNetwork> {
+  const preset = resolveVaraEthNetwork(value);
+  updateConfig({
+    varaEthNetwork: value as VaraWalletConfig['varaEthNetwork'],
+    varaEthRpc: preset.varaEthRpc,
+    ethereumRpc: preset.ethereumRpc,
+    routerAddress: preset.routerAddress ?? undefined,
+  });
+  return preset;
+}
 
 function parseConfigValue(key: ConfigKey, value: string): unknown {
   if (key === 'varaEthValidatorPool') {

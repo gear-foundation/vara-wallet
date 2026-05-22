@@ -162,6 +162,8 @@ vara-wallet wallet keys <name>
 vara-wallet wallet default [name]
 ```
 
+Without an explicit `--chain`, `wallet list` shows both native Vara and Vara.eth wallets with a `chain` field on each row. Use `--chain vara wallet list` or `--chain vara-eth wallet list` for a chain-specific inventory.
+
 `wallet keys` outputs the raw key material: `{ address, publicKey, secretKeyPkcs8, type }`. The PKCS8 blob contains the full secret key and can be used with Polkadot tooling to reconstruct the keypair. This is a sensitive operation — the secret key is exposed in the output. For a redacted export suitable for sharing, use `wallet export`.
 
 ### Vara.eth rail

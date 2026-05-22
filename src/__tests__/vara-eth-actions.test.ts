@@ -102,6 +102,7 @@ import {
   outputVaraEthProgramTopUp,
   outputVaraEthWvaraTransfer,
 } from '../commands/vara-eth-actions';
+import { CliError } from '../utils/errors';
 
 const FIXTURE_IDL = join(__dirname, 'fixtures', 'sample-v2.idl');
 
@@ -313,6 +314,47 @@ describe('Vara.eth shared actions', () => {
       },
       willSubmit: false,
     }));
+  });
+
+  it('uses zero address for Vara.eth Sails read origins only when no account is configured', async () => {
+    resolveEthexeAccountAddress.mockImplementationOnce(() => {
+      throw new CliError(
+        'No Vara.eth account selected. Use --account <name> or "config set defaultVaraEthAccount".',
+        'NO_ACCOUNT',
+      );
+    });
+
+    await outputVaraEthSailsCall(TO, 'Demo/GetPacket', {
+      idl: FIXTURE_IDL,
+      args: '[]',
+      value: '0',
+      dryRun: true,
+    });
+
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      kind: 'query',
+      origin: '0x0000000000000000000000000000000000000000',
+      via: null,
+      willSubmit: false,
+    }));
+  });
+
+  it('does not hide explicit Vara.eth account resolution failures behind zero origin', async () => {
+    resolveEthexeAccountAddress.mockImplementationOnce(() => {
+      throw new CliError('Vara.eth wallet "typo" not found', 'WALLET_NOT_FOUND', { name: 'typo' });
+    });
+
+    await expect(outputVaraEthSailsCall(TO, 'Demo/GetPacket', {
+      account: 'typo',
+      idl: FIXTURE_IDL,
+      args: '[]',
+      value: '0',
+      dryRun: true,
+    })).rejects.toMatchObject({
+      code: 'WALLET_NOT_FOUND',
+      meta: { name: 'typo' },
+    });
   });
 
   it('emits recovery JSON when deploy succeeds but init fails', async () => {

@@ -834,7 +834,8 @@ function resolveVaraEthOrigin(opts: EthexeAccountOptions & { origin?: string }):
   if (opts.origin) return asAddress(opts.origin, '--origin');
   try {
     return resolveEthexeAccountAddress(opts);
-  } catch {
+  } catch (err) {
+    if (!(err instanceof CliError) || err.code !== 'NO_ACCOUNT') throw err;
     return '0x0000000000000000000000000000000000000000';
   }
 }
