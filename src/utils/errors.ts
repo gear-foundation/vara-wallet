@@ -191,11 +191,11 @@ function classifyContractRevert(error: unknown): ({ error: string; code: string 
 }
 
 function extractContractErrorData(error: unknown): { data: string } | null {
-  const seen = new Set<unknown>();
+  const seen = new Set<object>();
   let current: unknown = error;
-  for (let depth = 0; depth < 8 && current && !seen.has(current); depth += 1) {
-    seen.add(current);
-    const data = extractContractErrorDataFromValue(current);
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === 'object' && current !== null && seen.has(current)) break;
+    const data = extractContractErrorDataFromValue(current, seen, 8);
     if (data) return { data };
     current = typeof current === 'object' && current !== null
       ? (current as { cause?: unknown }).cause
@@ -204,9 +204,11 @@ function extractContractErrorData(error: unknown): { data: string } | null {
   return null;
 }
 
-function extractContractErrorDataFromValue(value: unknown): string | null {
+function extractContractErrorDataFromValue(value: unknown, seen: Set<object>, depthRemaining: number): string | null {
   if (typeof value === 'string') return extractContractErrorDataFromText(value);
   if (typeof value !== 'object' || value === null) return null;
+  if (depthRemaining <= 0 || seen.has(value)) return null;
+  seen.add(value);
   const obj = value as Record<string, unknown>;
   for (const key of ['data', 'raw', 'details', 'shortMessage', 'message']) {
     const field = obj[key];
@@ -215,7 +217,7 @@ function extractContractErrorDataFromValue(value: unknown): string | null {
       if (data) return data;
       if (/^0x[0-9a-fA-F]{8}([0-9a-fA-F]{64})*$/.test(field)) return field;
     } else if (typeof field === 'object' && field !== null) {
-      const nested = extractContractErrorDataFromValue(field);
+      const nested = extractContractErrorDataFromValue(field, seen, depthRemaining - 1);
       if (nested) return nested;
     }
   }

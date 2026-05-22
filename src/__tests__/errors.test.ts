@@ -99,6 +99,37 @@ describe('formatError', () => {
     });
   });
 
+  it('extracts contract reverts from nested error fields', () => {
+    const err = {
+      details: {
+        data: '0xfb8f41b2',
+      },
+    };
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+    });
+  });
+
+  it('does not recurse indefinitely on cyclic nested error fields', () => {
+    const err: Record<string, unknown> = {
+      shortMessage: 'The contract function reverted with the following signature:\n0xfb8f41b2',
+    };
+    err.details = err;
+
+    expect(formatError(err)).toEqual({
+      error: 'ERC20InsufficientAllowance',
+      code: 'CONTRACT_REVERT',
+      reason: 'erc20_insufficient_allowance',
+      contractError: 'ERC20InsufficientAllowance',
+      selector: '0xfb8f41b2',
+    });
+  });
+
   it('merges CliError meta into the output object', () => {
     const err = new CliError('boom', 'PROGRAM_ERROR', {
       reason: 'panic',
