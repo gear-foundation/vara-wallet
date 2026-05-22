@@ -179,4 +179,34 @@ describe('getEthexeApi', () => {
     });
     expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
   });
+
+  it('disconnects late-settling provider connections after a timeout', async () => {
+    jest.useFakeTimers();
+    const apiStub = require('@vara-eth/api') as {
+      __setWsConnectImplementationForTests: (fn: () => Promise<void>) => void;
+      __getWsDisconnectCallsForTests: () => number;
+    };
+    let resolveConnect!: () => void;
+    apiStub.__setWsConnectImplementationForTests(() => new Promise<void>((resolve) => {
+      resolveConnect = resolve;
+    }));
+
+    const promise = getEthexeApi({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    jest.advanceTimersByTime(10_000);
+
+    await expect(promise).rejects.toMatchObject({
+      code: 'TRANSPORT_ERROR',
+      meta: {
+        reason: 'timeout',
+        endpoint: LOCAL_PRESET.varaEthRpc,
+      },
+    });
+    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
+
+    resolveConnect();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(2);
+  });
 });

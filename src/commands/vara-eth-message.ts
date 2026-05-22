@@ -12,7 +12,7 @@ import {
 } from '../services/vara-eth/promises';
 import { serializeReplyCode } from '../shared/output-eth/reply-code';
 import { CliError } from '../utils/errors';
-import { asAddress, asHex, parseOptionalBigInt } from '../utils/eth-types';
+import { asAddress, asHex, parseOptionalBigInt, parseOptionalPositiveInteger } from '../utils/eth-types';
 import { output } from '../utils/output';
 
 interface SendOptions {
@@ -66,12 +66,12 @@ export function registerVaraEthMessageCommand(program: Command): void {
       const payload = asHex(opts.payload, '--payload');
       const value = parseOptionalBigInt(opts.value, '--value');
       const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
+      const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
       const api = await getEthexeApi();
       const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
       api.eth.setSigner(signer);
 
-      const timeoutMs = opts.timeoutMs ? Number(opts.timeoutMs) : undefined;
       const validateSignature = opts.validateSignature !== false;
       const persist = via === 'injected';
       if (persist) initPromiseStore();

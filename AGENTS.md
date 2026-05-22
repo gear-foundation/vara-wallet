@@ -479,6 +479,33 @@ export VARA_WS=wss://testnet.vara.network
 
 **Resolution order:** `--ws` > `--network` > `VARA_WS` env > `config.wsEndpoint` > default.
 
+### Vara.eth rail
+
+Use `--chain vara-eth` for the Ethereum-anchored Vara.eth co-processor. Network names are per-chain: native Vara uses `mainnet|testnet|local`; Vara.eth uses `mainnet|hoodi|local`. Hoodi is the public Vara.eth testnet.
+
+```bash
+# Create an Ethereum V3 keystore for Vara.eth
+vara-wallet vara-eth:wallet create agent-eth --passphrase "$PASSPHRASE"
+
+# Read-only preflight
+vara-wallet --chain vara-eth --network hoodi vara-eth:wvara balance 0xYOUR_ETH_ADDRESS
+vara-wallet --chain vara-eth --network hoodi vara-eth:state read 0xMIRROR
+
+# Direct L1 write path. Prefer --via eth for production writes today.
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:message send 0xMIRROR --payload 0xfeed --via eth
+
+# Root Sails flow on Vara.eth
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  program upload ./program.opt.wasm --idl ./program.idl --args '[]'
+vara-wallet --chain vara-eth --network hoodi discover 0xMIRROR --idl ./program.idl
+vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args '[]' --idl ./program.idl
+```
+
+Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
+
+For endpoints and canonical Router/WVARA addresses, see `docs/vara-eth-networks.md`. For the manual Sails deploy/discover/call E2E, see `docs/sails-real-program-e2e.md`.
+
 ### Light Client Mode
 
 Use `--light` to connect via an embedded smoldot light client instead of a WebSocket RPC. This provides trustless, decentralized chain access without depending on centralized RPC infrastructure.

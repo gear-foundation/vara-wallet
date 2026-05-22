@@ -1,472 +1,111 @@
-# Vara.eth Integration Report — vara-wallet
+# Vara.eth Integration Report
 
-**Status as of 2026-05-18.** Branch: `vs/ethexe-rail-v1`.
+Status: current on branch `vs/ethexe-rail-v1` for the `0.20.0` release train.
 
-## TL;DR
+## Summary
 
-The Vara.eth rail is **operational** in vara-wallet for both read and L1 write
-paths against real on-chain programs. Read-side is fully verified on mainnet
-+ Hoodi. Write-side is verified against deployed programs on Hoodi
-(`via: eth`). The injected (validator-routed) write path has a known
-signature-verification issue on Hoodi that pushes the eth path as the safe
-default. Twelve items remain to call the integration "complete"; none of them
-block daily use — they progressively close usability, production-confidence,
-and verification debt gaps. **The wallet is ready for developer onboarding
-against Vara.eth today; production-grade write workloads need a focused
-follow-up pass (~1–2 days of work) closing P0/P1 items below.**
+`vara-wallet` now drives Vara.eth as a first-class chain through
+`--chain vara-eth`. The native Vara/Substrate rail remains the default
+(`--chain vara`). Vara.eth supports mainnet, Hoodi, and local presets, with
+read paths verified on mainnet and Hoodi and the direct L1 write path verified
+on Hoodi.
 
----
-
-## 1. What got built
-
-### 1.1 Lib (`@vara-eth/api@0.5.0-rc.0`, gear-js PR #2483)
-
-Phases 0 + 1 + 2 of the original research plan. Read-only consumed locally
-via `vendor/vara-eth-api-0.5.0-rc.0.tgz` until the lib publishes to npm.
-
-| Surface | What it does |
-|---|---|
-| `LocalSigner`, `privateKeyToLocalSigner` | secp256k1 signer for scripts/CLI |
-| `WalletClientAdapter`, `walletClientToSigner` | dApp-side EIP-1193 signer adapter |
-| `api.programs.deploy(code, opts)` | one-call: WVARA permit → upload → `CodeGotValidated` → create program |
-| `api.programs.sendAndWait(mirror, payload, opts)` | one-call: send + wait for reply on eth or injected path |
-| `api.fees.estimate(op)` | gas + WVARA pre-submit preview |
-| `api.stream.{programEvents, routerEvents, blocks}` | typed event subscriptions |
-| `extractSailsIdl(wasm)` | Sails IDL custom-section parser |
-| `assertViemFork()` | runtime guard that EIP-7594 viem fork is installed |
-| 10 typed errors | `ViemForkRequiredError`, `PromiseTimeoutError`, `InjectedTxStaleError`, `PermitExpiredError`, `BlobUnderpricedError`, `CodeValidationTimeoutError`, `NoSailsIdlError`, `RpcConnectionError`, `ChainIdMismatchError`, `PromiseSignatureInvalidError` |
-
-The lib stays adapter-shaped: it never holds keys. The wallet supplies an
-`ITransactionSigner` per call.
-
-### 1.2 Wallet (`vara-wallet`, branch `vs/ethexe-rail-v1`)
-
-Seven commits past origin/main, all green:
-
-| Commit | What |
-|---|---|
-| `f2d5c6f` | `yarn dev:link:vara-eth` — rebuild + relink lib from sibling checkout |
-| `7347714` | Token rename `ethexe` → `vara-eth` across every user-visible surface |
-| `3975517` | Network preset registry (initial — addresses TBD) |
-| `04003b9` | Phase 3b commands (`vara-eth:wvara`, `vara-eth:inheritor`, `vara-eth:validators`) |
-| `17c2a05` | Injected-promise persistence (`vara-eth-promises.db`) + `--resume` |
-| `2ad3663` | Mainnet + Hoodi deployment addresses wired into presets |
-| `e59770d` | Follow-ups doc captured |
-| `+ doc commits` | Bug-tracking entries from smoke discoveries |
-
-Command surface (`vara-eth:*`):
-- `wallet create/import/list/show/keys/export`
-- `message send [--via eth|injected] [--resume <txHash>]` + `reply`
-- `state read`
-- `program deploy/top-up`
-- `mailbox claim`
-- `subscribe program/router`
-- `wvara balance/transfer/approve/permit`
-- `inheritor recover`
-- `validators add/remove/list` (config-only)
-
-Infrastructure:
-- Chain dispatch: `Chain = 'vara' | 'vara-eth'`, `--chain` flag, per-chain
-  `--network` registry (substrate: `mainnet|testnet|local`; Vara.eth:
-  `mainnet|hoodi|local`)
-- V3 keystore (scrypt + AES-128-CTR), `~/.vara-wallet/wallets/<name>.vara-eth.json`,
-  file mode `0o600`
-- `vara-eth-promises.db` SQLite — 16-column schema for injected-tx audit
-  trail, WAL + `busy_timeout=5000ms`, 30-day auto-cleanup
-- Tests: **770/770 passing**, typecheck + esbuild clean
-
----
-
-## 2. End-to-end verification — what's proven
-
-Every claim below has a tx hash, RPC trace, or test artifact backing it.
-
-### 2.1 Read path (mainnet + Hoodi)
-
-| Network | Operation | Result |
-|---|---|---|
-| Mainnet | `wvara balance 0x000…000` | `"0"` |
-| Mainnet | `wvara balance <Router>` | `1200000000000000` (~0.0012 WVARA) |
-| Hoodi | `wvara balance 0x000…000` | `"0"` |
-| Hoodi | `wvara balance <Router>` | `195879400000110000` (~0.196 WVARA) |
-| Hoodi | `state read <one-of-us Mirror>` | `Active`, `initialized: true`, `executableBalance: 9556235725200` |
-| Hoodi | `program_ids` (raw RPC) | 734 Mirrors |
-
-Read path includes: WS to Hoodi Ethereum RPC, WS to Vara.eth validator RPC,
-Router contract load, WVARA discovery via Router → `wvara()` call, ERC-20
-`balanceOf` call.
-
-### 2.2 Write path — L1 (`via: eth`) on Hoodi
-
-Three real on-chain transactions confirmed:
-
-| Operation | Tx | Outcome |
-|---|---|---|
-| `wvara approve 0xE549…0b060 0` | `0x92d827…99da8b` | status `0x1`, gas 30,969, to WVARA contract |
-| `message send` JoinUs() on one-of-us Mirror `0x0a02…5a98` | `0xf69996…1215ab` | status `0x1`, gas 51,823, reply `false` (already in count) |
-| `message send` Count() on same Mirror | `0x0e4c76…68258b` | status `0x1`, reply SCALE u32 = `2` |
-
-Plus a fourth attempt against an uninitialized Mirror that **correctly
-returned the decoded contract revert** `InitMessageNotCreatedAndCallerNotInitializer()`
-— proving the wallet surfaces on-chain errors through to the user, even if
-the typed-error class is generic (see Follow-Up #8 below).
-
-Additional funded Hoodi smoke on 2026-05-21 confirmed the WVARA/top-up UX:
-
-| Operation | Tx | Outcome |
-|---|---|---|
-| `wvara approve <Router> 0` from `hoodi-smoke` | `0x9d7113…7ea227` | status `success`, block `2860019`, gas `30,969` |
-| `wvara approve <one-of-us Mirror> 1` | `0xbd64ce…c6de04` | status `success`, block `2860027`, gas `50,881`; proved mirror-level allowance requirement |
-| `program top-up <one-of-us Mirror> --amount 1 --units raw` | `0x7330a2…5dc4c9` | status `success`, block `2860033`, gas `71,243`; WTVARA balance decreased by exactly one raw unit |
-| permit-backed `program top-up <one-of-us Mirror> --amount 1 --units raw` | `0x995436…217f91` | status `success`, block `2860355`, gas `112,422`; no manual approve or `VARA_PASSPHRASE` env required |
-
-The same pass also exposed and fixed the top-up submission bug: the wallet
-must call `sendAndWaitForReceipt()` on the `executableBalanceTopUp` transaction
-manager, not `getReceipt()` before `send()`.
-
-L1 write path includes: V3 keystore load + scrypt decrypt → `LocalSigner` →
-calldata encode (Sails service-route prefix + SCALE args) → secp256k1
-sign → broadcast → receipt wait → Reply event listen → SCALE decode →
-JSON output.
-
-### 2.3 Negative results — what does NOT work today
-
-| Operation | Symptom | Status |
-|---|---|---|
-| `message send --via injected` on Hoodi | `"Validator signature did not recover to a valid address."` (lib's `PromiseSignatureInvalidError`) | Investigate; see #9 |
-| Some non-message contract reverts | Previously surfaced as generic errors; ERC-20 allowance/balance selectors now decode to structured `CONTRACT_REVERT` | Continue expanding decoder as new selectors appear |
-| `reply.code` in JSON output | Renders as `"[object Object]"` | Serializer bug; see #7 |
-| `--account hoodi-smoke` global flag | Falls through to `config.defaultAccount` | Commander wiring; see #6 |
-
----
-
-## 3. Follow-ups to "complete"
-
-Twelve items, prioritized. P0 = blocks usability for a real consumer.
-P1 = blocks production confidence. P2 = quality/observability backlog.
-
-### P0 — blocks usability
-
-**#1 — Fix global `--account` / `--passphrase` propagation in `vara-eth:*`
-subcommands.** Substrate commands call `program.optsWithGlobals()` inside
-their action handlers; Vara.eth commands skipped this pattern and read only
-the local options bag. Smoke workaround was `VARA_PASSPHRASE` env var +
-config `defaultAccount` override. Fix is mechanical: 7 files, each action
-gains a `cmd: Command` arg and reads `cmd.optsWithGlobals()`. **Effort: ~1 hr.**
-
-**#2 — Serialize `reply.code` properly in `vara-eth:message send` JSON.**
-Today emits `"code": "[object Object]"`. The lib's `ReplyCode` is a
-discriminated-union object; either `JSON.stringify(reply.code)` (verbose
-but lossless) or extract the tag (`Success`, `Error.*`). **Effort: ~30 min.**
-
-### P1 — blocks production confidence
-
-**#3 — Add `MessageRevertedError` typed class.** Contract reverts decode
-correctly in the error message but surface as generic `INTERNAL_ERROR`.
-The plan called out this class in `@vara-eth/api` but it was dropped.
-Options: ship in lib + wallet error formatter maps viem
-`ContractFunctionRevertedError` → it, OR wallet-side class in
-`shared/errors-eth/`. **Effort: ~2 hr if lib-side, ~1 hr if wallet-side.**
-
-**#4 — Triage Hoodi injected-path signature recovery.** `--via injected`
-on Hoodi returns `"Validator signature did not recover to a valid address."`
-The eth path on the same Mirror works fine. Likely causes:
-- Validator set the lib has cached doesn't match what Hoodi rotates to
-- Recovery path bug on canonical-quarantine=4 environments
-- EIP-191 vs raw-bytes signing mismatch on the validator side
-
-Also: wallet should expose `--no-validate-signature` flag for diagnostics
-(lib supports it via `validateSignature: false`, wallet doesn't pass it
-through). **Effort: ~half day, mostly upstream investigation.**
-
-**#5 — Mainnet write smoke.** We've verified mainnet **reads**; no real
-transaction has flowed through the wallet against mainnet. A trivial
-`wvara approve 0xRouter 0` from a mainnet-funded smoke wallet would close
-the loop. **Effort: 30 min of execution time + ETH gas.**
-
-**#6 — `vara-eth:program deploy` smoke.** Heaviest ceremony: code upload
-via EIP-7594 blob → `requestCodeValidation` → WVARA permit → wait for
-`CodeGotValidated` → `createProgram` variant pick. Needs Hoodi WVARA in
-the smoke wallet (Hoodi ETH alone won't cover Vara.eth fees). Once
-funded, run `vara-eth:program deploy ./sources/one_of_us.opt.wasm` and
-verify the new Mirror appears in `program_ids`. **Effort: 1 hr execution
-once WVARA is acquired; acquiring WVARA on Hoodi is the open question
-(no public faucet visible).**
-
-### P2 — observability + backlog
-
-**#7 — Promise persistence on `vara-eth:program deploy`.** Step 5 wired
-this into `vara-eth:message send` only. Deploy has two L1 txs to record
-(`requestCodeValidation` + `createProgram*`). Mechanically the same as
-the message-send wiring. **Effort: ~2 hr.**
-
-**#8 — Live-resume for in-flight injected promises.** Currently
-`--resume <txHash>` only reads terminal-state cached promises; pending
-promises throw `RESUME_PENDING_NOT_SUPPORTED` because the lib's
-`api.programs.sendAndWait` is a one-shot wrapper that hides the
-underlying `InjectedTx` primitive. Needs `api.injected.subscribeByTxHash`
-(or `InjectedTx.attach({txHash})`) upstream. **Effort: ~3–4 hr lib work
-+ ~1 hr wallet.**
-
-**#9 — Hostile-QA kill/restart smoke harness.** Shell-driven: fork 100
-`vara-eth:message send` invocations, SIGKILL half mid-flight, re-run with
-`--resume`, assert every txHash is confirmed or recoverable. Blocked
-on #8 (live-resume). Current proxy is a 100-row parallel-insert unit
-test. **Effort: ~2 hr once #8 lands.**
-
-**#10 — Upstream `MirrorClient.transferLockedValueToInheritor`.**
-`Mirror.sol` has it; the JS client doesn't wrap it. Wallet's
-`vara-eth:inheritor recover` uses inline `signer.sendTransaction` with
-an ABI fragment as workaround. **Effort: ~30 min lib + 15 min wallet
-cleanup.**
-
-**#11 — Rename `docs/vara-eth-testnet.md` → `docs/vara-eth-networks.md`.**
-Content covers all three networks (mainnet, hoodi, local); filename
-still says "testnet". **Effort: 5 min.**
-
-**#12 — Expose `canonical-quarantine` block depth in network presets.**
-Mainnet uses 8, Hoodi 4. The wallet doesn't currently consume this but
-anything reading on-chain state past the head should respect it.
-**Effort: ~1 hr (add field + thread through state-read commands).**
-
----
-
-## 4. Roadmap — sequencing to "complete"
-
-Sequenced for cumulative value at each milestone.
-
-### Milestone A — Daily-use ready (~2 hrs)
-
-Land #1 (`optsWithGlobals`) + #2 (`ReplyCode` serializer). After these, the
-wallet's CLI ergonomics match the substrate side and JSON output is clean.
-
-This is enough for a developer to onboard against Vara.eth with the wallet,
-follow the `docs/vara-eth-testnet.md` quick-start, and not hit basic friction.
-
-### Milestone B — Production confidence (~1–2 days)
-
-Land #3 (`MessageRevertedError`) + #5 (mainnet write smoke) + #6
-(`vara-eth:program deploy` smoke on Hoodi). #4 (injected-path triage) runs
-in parallel — if it surfaces a real lib bug, it slots into the lib's next
-patch; if it's a Hoodi config issue, document and move on.
-
-After this milestone, the wallet has:
-- Driven real txs on both networks
-- Driven the full deploy ceremony at least once
-- Typed-error coverage matching observed failure modes
-
-### Milestone C — Operational maturity (~3–4 days, mostly lib work)
-
-Land #7 (deploy persistence), #8 (live-resume), #9 (hostile-QA), #10
-(`transferLockedValueToInheritor`), #11 (doc rename), #12 (quarantine
-field). #8 is the centerpiece; the rest are sliced around it.
-
-After this, the wallet survives kill/restart without losing in-flight
-promises and matches every Mirror method exposed by the Solidity contract.
-
----
-
-## 5. Open questions for stakeholders
-
-1. **Hoodi WVARA acquisition path** — needed for #6 (`program deploy`
-   smoke). No public faucet visible in the one-of-us repo or wallet docs.
-   Is there a bridge from Hoodi ETH? Internal allocation?
-
-2. **Injected-path validator set on Hoodi** — #4 hinges on this. Is the
-   lib's cached validator set stale, or is recovery genuinely broken
-   under canonical-quarantine=4? Needs a few minutes from someone with
-   ethexe-validator visibility on Hoodi.
-
-3. **`@vara-eth/api` publish cadence** — the wallet consumes the lib via
-   local tarball. Once gear-js PR #2483 merges and `0.5.0` (or `0.5.1`
-   with the items above) publishes to npm, the wallet's
-   `package.json` flips `file:vendor/…tgz` → `^0.5.0` (one-line PR).
-   Any timeline target?
-
----
-
-## 6. Appendix — verification commands
-
-### Read-side smoke (no signer, no funds needed)
+The primary user-facing UX is root-command parity where possible:
 
 ```bash
-# Mainnet
-vara-wallet --chain vara-eth --network mainnet --json \
-  vara-eth:wvara balance 0xB67010F2246814e5c39593ac23A925D9e9d7E5aD
-
-# Hoodi
-vara-wallet --chain vara-eth --network hoodi --json \
-  vara-eth:wvara balance 0xE1ab85A8B4d5d5B6af0bbD0203EB322DF33d0464
-
-# Hoodi — Mirror state read (any of 734 deployed Mirrors)
-vara-wallet --chain vara-eth --network hoodi --json \
-  vara-eth:state read 0x0a02812883cd818ddb0db60183609da2e7685a98
+vara-wallet --chain vara-eth --network hoodi program upload ./program.opt.wasm --idl ./program.idl --args '[]'
+vara-wallet --chain vara-eth --network hoodi discover 0xMIRROR --idl ./program.idl
+vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args '[]' --idl ./program.idl
 ```
 
-### Write-side smoke (Hoodi smoke wallet at `~/.vara-wallet/wallets/hoodi-smoke.vara-eth.json`)
+Rail-specific workflows remain available under `vara-eth:*`:
 
-```bash
-# The local smoke credential can live at:
-# ~/.vara-wallet/passphrases/hoodi-smoke.passphrase
+- `vara-eth:wallet create|import|list|show|keys`
+- `vara-eth:message send|reply`
+- `vara-eth:program deploy|top-up`
+- `vara-eth:state read`
+- `vara-eth:mailbox claim`
+- `vara-eth:subscribe program|router|blocks`
+- `vara-eth:wvara balance|transfer|approve|permit`
+- `vara-eth:inheritor recover`
+- `vara-eth:validators add|remove|list`
 
-vara-wallet \
-  --chain vara-eth --network hoodi --json \
-  --account hoodi-smoke \
-  balance
+## Current Capabilities
 
-vara-wallet \
-  --chain vara-eth --network hoodi --json \
-  --account hoodi-smoke \
-  vara-eth:wvara approve 0xE549b0AfEdA978271FF7E712232B9F7f39A0b060 0
+- V3 Ethereum keystores live at
+  `~/.vara-wallet/wallets/<name>.vara-eth.json`.
+- Network presets are `mainnet`, `hoodi`, and `local`; Hoodi is the public
+  Vara.eth testnet.
+- `@vara-eth/api@0.5.0-rc.1` is vendored through
+  `vendor/vara-eth-api-0.5.0-rc.1.tgz`.
+- `vara-eth:message send` supports `--via eth` and `--via injected`; prefer
+  `--via eth` for production writes until injected-path validator recovery is
+  fully triaged.
+- `--no-validate-signature` exists only for injected-path diagnostics.
+- `reply.code` output is structured as `{ tag, raw, reason }`.
+- Vara.eth typed errors flow through stable JSON codes such as
+  `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and
+  `TRANSPORT_ERROR`.
 
-vara-wallet \
-  --chain vara-eth --network hoodi --json \
-  --account hoodi-smoke \
-  program top-up 0x0a02812883cd818ddb0db60183609da2e7685a98 \
-    --amount 1 --units raw
-```
+## Verification
 
-### Sails payload encoder snippet (for any service.method call)
+Local verification on this branch:
 
-```js
-const { Sails } = require('sails-js');
-const { SailsIdlParser } = require('sails-js-parser');
+- Full Jest suite: 78 suites / 839 tests passing.
+- `npm run build` passes.
+- `npm run test:smoke` passes.
+- Manual local Gear/Sails smoke deployed a demo Sails program, discovered it,
+  queried `Demo/GetCounter`, submitted `Demo/Increment`, and verified the
+  counter changed from `0` to `1`.
 
-const idl = `<paste IDL here>`;
-const parser = await SailsIdlParser.new();
-const sails = new Sails(parser);
-sails.parseIdl(idl);
+Live read verification:
 
-const payload = sails.services.OneOfUs.functions.JoinUs.encodePayload();
-// → 0x1c4f6e654f665573184a6f696e5573
-```
+- Mainnet and Hoodi WVARA balance reads work through the configured Ethereum
+  and Vara.eth RPCs.
+- Hoodi `vara-eth:state read` works against deployed Mirrors.
+- Hoodi DEX/VFT read-only checks on the native Vara rail continue to work for
+  built-in bridged token aliases.
 
-### Canonical addresses
+Live write verification on Hoodi:
 
-| Network | Router | WVARA |
-|---|---|---|
-| Mainnet | `0x9C13FE9242dfe2ba2Cd446480A9308279aA74cb6` | `0xB67010F2246814e5c39593ac23A925D9e9d7E5aD` |
-| Hoodi | `0xE549b0AfEdA978271FF7E712232B9F7f39A0b060` | `0xE1ab85A8B4d5d5B6af0bbD0203EB322DF33d0464` |
-| Local | discovered from Anvil broadcast | bound to Router |
+- Direct L1 WVARA approval succeeded.
+- Direct L1 message sends against deployed Mirrors succeeded and returned
+  decoded replies.
+- Permit-backed `program top-up` succeeded without a separate manual approval.
 
-### one-of-us deployed Mirrors on Hoodi (sample)
+See `docs/sails-real-program-e2e.md` for the reusable Sails fixture flow.
 
-Code id: `0x91854b2e4aca87b382469e605a54169b4c3d8e78d209faaf9ec34d8fcb878689`
+## Network Presets
 
-```
-0x0a02812883cd818ddb0db60183609da2e7685a98
-0x123bacf4c9707eba1b33b79b020385704e420311
-0x12e51e82b870fcd013e3c7c6edef66bb150793a3
-0x1f00cefaa88b40fa31c6f3e611fbeb8aacafbdc0
-0x204586d8d4d6949a578996afc1eba2496252ad19
-```
+| Network | Ethereum RPC | Vara.eth RPC | Router | WVARA |
+|---|---|---|---|---|
+| `mainnet` | `wss://mainnet-reth-rpc.gear-tech.io/ws` | `wss://validator-1-eth.vara.network` | `0x9C13FE9242dfe2ba2Cd446480A9308279aA74cb6` | `0xB67010F2246814e5c39593ac23A925D9e9d7E5aD` |
+| `hoodi` | `wss://hoodi-reth-rpc.gear-tech.io/ws` | `wss://vara-eth-validator-1.gear-tech.io` | `0xE549b0AfEdA978271FF7E712232B9F7f39A0b060` | `0xE1ab85A8B4d5d5B6af0bbD0203EB322DF33d0464` |
+| `local` | `ws://127.0.0.1:8545` | `ws://127.0.0.1:9944` | discovered at runtime | Router-bound |
 
-Total: 5 found in a partial scan; more likely exist beyond the first 250.
+Mainnet and Hoodi also define beacon RPCs for EIP-7594 blob lookups during code
+upload. Full endpoint details live in `docs/vara-eth-networks.md`.
 
----
+## Gear `ethexe-cli` Parity
 
-## 7. Closing
+`vara-wallet` is feature-complete for core Vara.eth end-user flows:
 
-The Vara.eth rail is **structurally complete** — every command the plan
-called for exists, builds, has unit-test coverage, and the read + L1-write
-ceremonies are verified against real on-chain programs on Hoodi and (read
-only) mainnet. The remaining work is debt cleanup and triage, not
-architecture: twelve items totalling roughly 1 week of focused effort
-distributed between the wallet repo and the upstream `@vara-eth/api` lib.
+- deploy/top-up a program,
+- send and reply to messages,
+- read state,
+- claim mailbox values,
+- manage WVARA,
+- recover inheritor-locked value,
+- stream Router, Mirror, and block events.
 
-Milestone A (~2 hrs) unlocks daily developer use against Vara.eth.
-Milestone B (~1–2 days) unlocks production confidence including mainnet
-writes and full program deployment. Milestone C (~3–4 days) closes the
-operational-maturity gap including live-resume of interrupted promises.
+It is intentionally not a node-operator replacement for Gear `ethexe-cli`.
+Commands such as `run`, `key`, and `check` remain Gear node responsibilities.
 
-The integration is **demonstrably ready to land** behind a feature flag
-or as a soft launch for dev onboarding, while Milestones B+C run in
-parallel.
+Remaining gaps are operational rather than structural:
 
----
+- owned-balance top-up parity,
+- deploy persistence across restarts,
+- live resume for pending injected promises,
+- injected-path validator-signature recovery triage.
 
-## 8. Milestone progress (2026-05-19)
-
-### Milestone A — shipped
-
-- **`7ee774b` (PR-A1)** — global `--account` / `--passphrase` propagate via
-  `cmd.optsWithGlobals()` across 9 vara-eth-*.ts files. Hoodi smoke
-  workaround (`VARA_PASSPHRASE` env + config override) no longer required.
-- **`e0603d3` (PR-A2)** — `reply.code` JSON output now emits
-  `{ tag, raw, reason }` (e.g. `tag: 'Success.Auto'`) instead of
-  `"[object Object]"`. Lossless + agent-readable.
-
-Tests: 770 → 787 (added 14 unit tests across opts-globals + reply-code-serializer).
-Typecheck + esbuild clean. Closes follow-ups #6 and #7.
-
-### Milestone B — shipped (code) + open (verification)
-
-Shipped:
-- **lib `7f944015` (PR-B1)** — `MessageRevertedError` in `@vara-eth/api@0.5.0-rc.1`.
-  Wraps `MirrorClient.sendMessage` + `sendReply` simulation calls; decoded
-  revert selector surfaces as `reason` (e.g.
-  `'InitMessageNotCreatedAndCallerNotInitializer()'`).
-- **wallet `720d639` (PR-B2)** — `formatError` recognizes `VaraEthError`,
-  surfaces typed code (`MESSAGE_REVERTED`) + `reason` + `functionName` to
-  JSON output. Vendored tarball bumped.
-- **wallet `720d639` (PR-B5 wallet-side)** — `--no-validate-signature`
-  flag on `vara-eth:message send` for Hoodi injected-path diagnostics.
-
-Tests: 787 wallet + 55 lib unit suite green.
-
-Open (gated on environment access — see §5):
-- **PR-B3** mainnet write smoke — stakeholder approval for ~$0.01 mainnet
-  ETH allocation.
-- **PR-B4** Hoodi `program deploy` smoke — Hoodi WVARA acquisition path
-  unknown.
-- **PR-B5 (lib-side investigation)** — validator set / quarantine-depth
-  root cause for injected-path signature recovery on Hoodi. Half-day
-  time-box once an ethexe-ops contact is available.
-
-Milestone A+B code is **production-ready and merged on branch**. The three
-open items are verification + investigation, not implementation.
-
----
-
-## 9. Gear `ethexe-cli` parity check (2026-05-20)
-
-This is the repo-local comparison against `../gear/ethexe/cli` after the
-Vara.eth wallet integration landed.
-
-### What matches
-
-- `run` / `key` / `check` are ethexe-node responsibilities, not wallet
-  responsibilities. `vara-wallet` intentionally does not try to reproduce
-  those operator flows.
-- The wallet does cover the user-facing transaction surface that maps to
-  Gear's `tx` workflows:
-  - `vara-eth:program deploy`
-  - `vara-eth:program top-up`
-  - `vara-eth:message send`
-  - `vara-eth:message reply`
-  - `vara-eth:state read`
-  - `vara-eth:mailbox claim`
-  - `vara-eth:wvara balance|transfer|approve|permit`
-  - `vara-eth:inheritor recover`
-  - `vara-eth:subscribe router|program|blocks`
-
-### Still incomplete
-
-| Gear ethexe-cli surface | Wallet status | Notes |
-|---|---|---|
-| `tx owned-balance-top-up` | Missing | The wallet only exposes executable balance top-up today. |
-| `tx transfer-locked-value-to-inheritor` | Covered indirectly | Implemented in `vara-eth:inheritor recover`, but via a wallet-side ABI shim because the upstream client lacked the wrapper. |
-| `tx send-message --injected` resume of pending in-flight txs | Partial | Terminal outcomes can be re-read, but live re-attachment to pending promises is still not fully modeled in-wallet. |
-| `tx deploy` persistence across restarts | Partial | The deploy ceremony exists, but the operational resume path is not yet as durable as `message send`. |
-| Node/operator lifecycle (`run`, `key`, `check`) | Not applicable | These belong to the ethexe node CLI, not the wallet. |
-
-### Verdict
-
-The wallet is **feature-complete for the core Vara.eth end-user flows**
-that need to be driven from `vara-wallet` itself. It is **not a perfect
-mirror of `ethexe-cli`**, because the node-side operator commands stay in
-the Gear repo and a few operational extras remain partial.
-
-The main remaining gaps are operational, not structural: owned-balance
-top-up parity, better deploy persistence, and full pending-promise
-resume semantics.
+The actionable backlog is tracked in `docs/vara-eth-followups.md`.

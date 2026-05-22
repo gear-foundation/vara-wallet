@@ -95,6 +95,7 @@ const {
 import {
   outputVaraEthBalance,
   outputVaraEthDiscover,
+  outputVaraEthMessageSend,
   outputVaraEthMessageReply,
   outputVaraEthProgramUpload,
   outputVaraEthSailsCall,
@@ -225,6 +226,40 @@ describe('Vara.eth shared actions', () => {
       repliedTo: messageId,
       status: 'success',
     }));
+  });
+
+  it('passes validated timeoutMs to Vara.eth message sends', async () => {
+    await outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'eth',
+      timeoutMs: '2500',
+    });
+
+    expect(mockSendAndWait).toHaveBeenCalledWith(TO, '0xabcd', {
+      value: undefined,
+      via: 'eth',
+      timeoutMs: 2500,
+      validateSignature: true,
+    });
+  });
+
+  it('rejects invalid Vara.eth message send timeouts before opening the API', async () => {
+    await expect(outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'eth',
+      timeoutMs: '2500ms',
+    })).rejects.toMatchObject({
+      code: 'INVALID_TIMEOUT',
+      meta: {
+        field: '--timeout-ms',
+        value: '2500ms',
+      },
+    });
+
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockSendAndWait).not.toHaveBeenCalled();
   });
 
   it('discovers a Vara.eth Sails program from a local IDL without substrate RPC', async () => {

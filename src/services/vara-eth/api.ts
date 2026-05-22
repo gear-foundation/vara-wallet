@@ -52,19 +52,31 @@ function asAddress(value: unknown): Address | undefined {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as Address) : undefined;
 }
 
-function withEthexeConnectionTimeout<T>(promise: Promise<T>, endpoint: string): Promise<T> {
-  let timer: NodeJS.Timeout;
+function withEthexeConnectionTimeout<T>(
+  promise: Promise<T>,
+  endpoint: string,
+  cleanupAfterTimeout?: () => void,
+): Promise<T> {
+  let didTimeout = false;
+  let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new CliError(
-        `Connection to ${endpoint} timed out after 10s. Check your network or VARA_ETH_RPC setting.`,
-        'CONNECTION_TIMEOUT',
-      )),
+      () => {
+        didTimeout = true;
+        cleanupAfterTimeout?.();
+        reject(new CliError(
+          `Connection to ${endpoint} timed out after 10s. Check your network or VARA_ETH_RPC setting.`,
+          'CONNECTION_TIMEOUT',
+        ));
+      },
       ETHEXE_CONNECTION_TIMEOUT_MS,
     );
   });
   return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+      if (didTimeout) cleanupAfterTimeout?.();
+    }),
     timeoutPromise,
   ]);
 }
@@ -215,21 +227,25 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
   const cfg = resolveEthexeConfig(options);
 
   const ws = new WsVaraEthProvider(cfg.varaEthRpc);
-  let api: VaraEthApi;
-  try {
-    await withEthexeConnectionTimeout(ws.connect(), cfg.varaEthRpc);
-
-    const publicClient = createPublicClient({ transport: webSocket(cfg.ethereumRpc) }) as PublicClient;
-    api = await withEthexeConnectionTimeout(
-      createVaraEthApi(ws, publicClient, cfg.routerAddress),
-      cfg.varaEthRpc,
-    );
-  } catch (rawErr) {
+  const disconnectWs = () => {
     try {
       ws.disconnect?.();
     } catch {
       // ignore failed cleanup after connect/bootstrap failure
     }
+  };
+  let api: VaraEthApi;
+  try {
+    await withEthexeConnectionTimeout(ws.connect(), cfg.varaEthRpc, disconnectWs);
+
+    const publicClient = createPublicClient({ transport: webSocket(cfg.ethereumRpc) }) as PublicClient;
+    api = await withEthexeConnectionTimeout(
+      createVaraEthApi(ws, publicClient, cfg.routerAddress),
+      cfg.varaEthRpc,
+      disconnectWs,
+    );
+  } catch (rawErr) {
+    if (!(rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT')) disconnectWs();
     throw classifyTransportError(rawErr, { endpoint: cfg.varaEthRpc }) ?? rawErr;
   }
 

@@ -18,7 +18,7 @@ import {
   type LoadedSails,
 } from '../services/sails';
 import { serializeReplyCode } from '../shared/output-eth/reply-code';
-import { asAddress, asHex, parseOptionalBigInt } from '../utils/eth-types';
+import { asAddress, asHex, parseOptionalBigInt, parseOptionalPositiveInteger } from '../utils/eth-types';
 import {
   CliError,
   coerceArgsAuto,
@@ -159,12 +159,12 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   const payload = asHex(opts.payload, '--payload');
   const value = parseOptionalBigInt(opts.value, '--value');
   const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
+  const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
   const api = await getEthexeApi();
   const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
   api.eth.setSigner(signer);
 
-  const timeoutMs = opts.timeoutMs ? Number(opts.timeoutMs) : undefined;
   const validateSignature = opts.validateSignature !== false;
   const persist = via === 'injected';
   if (persist) initPromiseStore();

@@ -37,3 +37,21 @@ export function parseOptionalBigInt(raw: string | undefined, field: string): big
     throw new CliError(`${field} must be an integer`, 'INVALID_BIGINT', { field, value: raw });
   }
 }
+
+/** Parses an optional decimal CLI argument into a positive safe integer. */
+export function parseOptionalPositiveInteger(
+  raw: string | undefined,
+  field: string,
+  code = 'INVALID_INTEGER',
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new CliError(`${field} must be a positive integer`, code, { field, value: raw });
+  }
+
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw new CliError(`${field} must be a positive integer`, code, { field, value: raw });
+  }
+  return value;
+}

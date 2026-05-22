@@ -1,184 +1,61 @@
 # Vara.eth Follow-Ups
 
-Deferred items from the Vara.eth rail (Phase 3 finalization, plan §15 in
-`research-ethexe-client-primitives-composed-hummingbird.md`). Each entry
-is independently shippable — none of them block the current branch.
+Deferred items from the `0.20.0` Vara.eth rail. Items listed here are not
+blockers for the current branch; they are operational parity or upstream
+cleanup work.
 
-## 1. Upstream `MirrorClient.transferLockedValueToInheritor` in `@vara-eth/api`
+## Shipped in 0.20.0
 
-**Where the gap is**: `Mirror.sol` exposes
-`transferLockedValueToInheritor()`, but the JS client in
-`@vara-eth/api@0.5.0-rc.0` doesn't wrap it.
+- `vara-eth:*` subcommands honor global `--account` and `--passphrase`.
+- `reply.code` serializes as `{ tag, raw, reason }`.
+- `MessageRevertedError` from `@vara-eth/api@0.5.0-rc.1` surfaces as
+  `MESSAGE_REVERTED` with `reason` and `functionName`.
+- `vara-eth:message send` exposes `--no-validate-signature` for injected-path
+  diagnostics.
+- The networks guide now covers mainnet, Hoodi, and local as
+  `docs/vara-eth-networks.md`.
 
-**Wallet-side workaround**: `src/commands/vara-eth-inheritor.ts` uses
-`signer.sendTransaction` with an inline ABI fragment. Functional but
-duplicates the contract surface the lib should own.
+## Remaining Work
 
-**Fix shape**: add a method on `MirrorClient` mirroring the Solidity
-signature. Wallet then drops the inline ABI and calls
-`mirrorClient.transferLockedValueToInheritor()` like every other Mirror
-method.
+### 1. Upstream `MirrorClient.transferLockedValueToInheritor`
 
-**Owner / tracking**: needs an upstream PR on `gear-tech/gear-js` once
-the current PR (#2483) merges or as a follow-up `0.5.1` patch.
+`Mirror.sol` exposes `transferLockedValueToInheritor()`, but the wallet still
+uses a small ABI shim in `vara-eth:inheritor recover`. Add the wrapper to
+`@vara-eth/api`, then replace the wallet shim with the typed client method.
 
-## 2. Live-resume for in-flight injected promises
+### 2. Live resume for pending injected promises
 
-**Where the gap is**: `api.programs.sendAndWait` is a one-shot wrapper —
-it hides the lower-level `InjectedTx` primitive. Once a process dies
-mid-await, there's no way to re-attach to the in-flight subscription
-purely from the txHash.
+`vara-eth:message send --resume <txHash>` can reread terminal cached outcomes,
+but cannot reattach to a still-pending injected promise. This needs upstream
+support such as `api.injected.subscribeByTxHash(txHash, opts)` or an
+`InjectedTx.attach({ txHash })` API.
 
-**Wallet-side stub**: `vara-eth:message send --resume <txHash>` returns
-`RESUME_PENDING_NOT_SUPPORTED` for `pending`-status rows; only terminal
-outcomes (`resolved`/`failed`/`expired`) can be re-read post-restart.
+### 3. Promise persistence for `vara-eth:program deploy`
 
-**Fix shape**: add `api.injected.subscribeByTxHash(txHash, opts)` (or
-expose `InjectedTx.attach({ txHash, ... })`) upstream. Wallet then drops
-the typed-error stub and the resume path waits on the lib subscription.
+Message sends persist injected-tx audit rows today. Program deploy has a longer
+ceremony (`requestCodeValidation` plus `createProgram*`) and should record both
+L1 transactions so deploy recovery matches message recovery.
 
-**Owner / tracking**: pairs with #1 above — both are `@vara-eth/api`
-follow-ups. Track in the same upstream issue.
+### 4. Hostile kill/restart smoke
 
-## 3. Promise persistence for `vara-eth:program deploy`
+Add a live smoke harness that starts multiple `vara-eth:message send`
+processes, kills some mid-flight, and verifies each transaction is confirmed or
+recoverable. This is blocked on live pending-promise resume.
 
-**Where the gap is**: Step 5 wired persistence into `vara-eth:message
-send` but not `vara-eth:program deploy`. The deploy ceremony has two L1
-txs (`requestCodeValidation` + `createProgram*`); both should be
-recorded.
+### 5. Owned-balance top-up parity
 
-**Fix shape**: mirror the `vara-eth-message.ts` persistence pattern in
-`vara-eth-program.ts`. Two `injected_promises` rows per deploy. Same
-typed error semantics on resume.
+`vara-wallet` exposes executable balance top-up. Gear `ethexe-cli` also has an
+owned-balance top-up path; add the wallet command only if that flow is needed by
+end users rather than node operators.
 
-**Blocker / unblock**: trivially shippable today; rolled into a separate
-PR after the wallet validates against live Hoodi to avoid bundling
-unrelated scope.
+### 6. Hoodi injected-path validator recovery
 
-## 4. Hostile-QA full kill/restart smoke
+The direct L1 write path (`--via eth`) is the safe default and has been verified
+on Hoodi. The injected path still needs a time-boxed upstream check of validator
+set freshness and signature recovery under Hoodi's canonical-quarantine depth.
 
-**Where the gap is**: the current 100-row parallel-insert unit test
-proxies for the hostile case but doesn't actually kill+restart a
-process between submit and reply.
+### 7. Canonical-quarantine metadata
 
-**Fix shape**: a shell-driven smoke harness that forks `vara-wallet
-vara-eth:message send` 100×, SIGKILLs every other one mid-flight, then
-re-runs each with `--resume` and asserts every txHash is either
-confirmed or recoverable from `vara-eth-promises.db`.
-
-**Blocker / unblock**: hard-blocked by #2 (live-resume). Without
-`subscribeByTxHash`, only the post-mortem flavour works.
-
-## 5. Rename `docs/vara-eth-testnet.md` → `docs/vara-eth-networks.md`
-
-**Where the gap is**: the doc was created as Hoodi-only in Step 3 then
-expanded to cover mainnet + Hoodi + local in `2ad3663`. The filename
-still says "testnet".
-
-**Fix shape**: single `git mv` + reference updates. Skipped during the
-deployment-info commit to avoid bundling a rename into a content
-change.
-
-## 6. `vara-eth:*` subcommands don't honor global `--account` / `--passphrase`
-
-**Where the gap is**: substrate commands read `program.optsWithGlobals()`
-inside their actions (see `src/commands/balance.ts:15`,
-`src/commands/message.ts:76`). The Vara.eth commands skipped this
-pattern — each action's `options` argument is the SUBCOMMAND-local
-opts bag, so global `--account` / `--passphrase` flags don't propagate.
-
-**Smoke-discovered symptom**: passing `--account hoodi-smoke` (in any
-position) had no effect; the resolver always fell back to
-`config.defaultAccount`. Workaround during the Hoodi smoke was to set
-`defaultAccount` in config + use `VARA_PASSPHRASE` env var.
-
-**Fix shape**: every `.action((arg1, arg2, options) => …)` in the
-seven `vara-eth-*.ts` files becomes
-`.action((arg1, arg2, options, cmd) => { const globals =
-cmd.optsWithGlobals(); … })`. Then merge globals over local options
-before calling `resolveEthexeSigner`.
-
-**Blocker / unblock**: not blocking — env-var + config-default
-workaround works. Worth a focused commit since it's mechanical and
-affects every write-side Vara.eth command.
-
-## 7. `reply.code` serializes as `"[object Object]"` in JSON output
-
-**Where the gap is**: `vara-eth:message send` JSON output emits
-`"code": "[object Object]"` for the reply code. The lib returns a
-`ReplyCode` discriminated-union object; `.toString()` on it doesn't
-produce a useful string.
-
-**Symptom from Hoodi smoke**:
-
-```json
-{ "reply": { "payload": "0x…", "value": "0", "code": "[object Object]" } }
-```
-
-**Fix shape**: in `src/commands/vara-eth-message.ts`, replace
-`result.reply.code.toString()` with a proper serializer — either
-`JSON.stringify(result.reply.code)` (verbose but lossless) or extract
-the discriminant tag (`Success`, `Error.{Execution, FailedToCreateProgram, …}`)
-into a short string. Apply the same fix anywhere else that outputs
-a ReplyCode.
-
-## 8. Contract reverts surface as `INTERNAL_ERROR`, not `MESSAGE_REVERTED`
-
-**Where the gap is**: when a Mirror `sendMessage` reverts (e.g.
-`InitMessageNotCreatedAndCallerNotInitializer()` from an uninitialized
-Mirror), the wallet output is:
-
-```json
-{ "error": "The contract function 'sendMessage' reverted...", "code": "INTERNAL_ERROR" }
-```
-
-The error message correctly contains the decoded revert reason, but the
-code is generic. The plan called out a `MessageRevertedError` typed
-class in `@vara-eth/api`; that class was either dropped or never
-shipped, and the wallet's `outputError` falls through to generic.
-
-**Fix shape**: either (a) add `MessageRevertedError` upstream and have
-the wallet's error formatter map viem `ContractFunctionRevertedError`
-into it, or (b) wallet-side, add a `MessageRevertedError` in
-`src/shared/errors-eth/` and catch + re-throw with the decoded name.
-
-## 9. Injected path on Hoodi: validator signature doesn't recover
-
-**Where the gap is**: `vara-eth:message send … --via injected` against
-a Hoodi Mirror returns:
-
-```json
-{ "error": "Validator signature did not recover to a valid address.",
-  "code": "INTERNAL_ERROR" }
-```
-
-The L1 path (`--via eth`) on the same Mirror works fine. So the issue
-is either:
-- the validator set the smoke is seeing differs from the one the lib
-  has cached (stale set),
-- or the recovery path in `@vara-eth/api`'s
-  `InjectedTxPromise.validateSignature()` has a bug on Hoodi's
-  canonical-quarantine = 4 environment.
-
-The lib has a `validateSignature: false` opt-out, but the wallet
-doesn't expose it. Should be a flag like `--no-validate-signature`
-for diagnostics.
-
-**Fix shape**: triage upstream — confirm the validator set the lib
-caches is what Hoodi actually rotates to. Add the diagnostic flag
-to the wallet either way; surface the typed `PromiseSignatureInvalidError`
-properly (today it falls through to `INTERNAL_ERROR`).
-
-## 10. ABIs / canonical-quarantine settings exposure
-
-**Where the gap is**: the network presets carry RPC + Router + WVARA
-but not the `canonical-quarantine` block depth (mainnet: 8, hoodi: 4).
-The wallet doesn't currently need it, but anything reading on-chain
-state past the head should.
-
-**Fix shape**: add `canonicalQuarantineBlocks?: number` to
-`VaraEthNetworkConfig`; surface it in any future `vara-eth:state read`
-deep-history flag. No call site needs it today.
-
-**Blocker / unblock**: not blocking; record it here so the registry
-keeps growing in the right direction.
+Mainnet uses 8 blocks and Hoodi uses 4. The wallet does not consume this today,
+but future state/history reads should thread `canonicalQuarantineBlocks` through
+the Vara.eth network config before exposing deep-history behavior.
