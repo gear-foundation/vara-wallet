@@ -46,6 +46,10 @@ Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so th
 
 - **Built-in bridged VFT token aliases.** New `token list` / `token resolve` commands expose official Vara bridge token program IDs for mainnet/testnet. Existing `vft` and `dex` token arguments now accept aliases like `usdc`, `wusdc`, `weth`, `wbtc`, `tokenized-vara`, `wvara`, and `wtvara` while preserving raw token program address support.
 
+### Changed — native query path performance
+
+- **Lower-overhead Sails, VFT, and DEX lookup helpers.** Method suggestions now reuse one deduped candidate list, Sails event-name resolution scans inherited services once per lookup, built-in token aliases resolve through a precomputed network-aware map, `vft info` runs independent per-field fallback chains in parallel, and `dex pairs` queries each repeated token symbol once before mapping symbols back to the original pair order.
+
 ### Changed — Vara.eth chain token (breaking on this branch only — no prior release)
 
 - **Chain token renamed** `ethexe` → `vara-eth` everywhere user-visible: CLI flag (`--chain vara-eth`), command prefix (`vara-eth:*`), wallet file suffix (`.vara-eth.json`), config key (`defaultChain: 'vara-eth'`). No legacy shims — this branch never shipped to users with the old token. Internal types: `Chain = 'vara' | 'vara-eth'`.
@@ -56,7 +60,8 @@ Adds a parallel command tree for the **Vara.eth co-processor on Ethereum** so th
 - 14 net-new unit tests in Milestone A (`vara-eth-opts-globals.test.ts` × 4, `reply-code-serializer.test.ts` × 10).
 - 3 net-new unit tests in Milestone B (`vara-eth-error-mapping.test.ts`).
 - 4 net-new unit tests in the lib (`@vara-eth/api`, `message-reverted.test.ts`).
-- **Total wallet suite: 799 passing.**
+- Focused native-query regression coverage for token alias lookup, VFT info fallback behavior, and DEX pair symbol deduplication.
+- **Total wallet suite: 836 passing.**
 
 ### Verified end-to-end (Hoodi)
 
