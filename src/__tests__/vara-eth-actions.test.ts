@@ -263,6 +263,22 @@ describe('Vara.eth shared actions', () => {
     expect(mockSendAndWait).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid Vara.eth message send paths before opening the API', async () => {
+    await expect(outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'ethe' as any,
+    })).rejects.toMatchObject({
+      code: 'INVALID_VIA',
+      meta: {
+        via: 'ethe',
+      },
+    });
+
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+  });
+
   it('discovers a Vara.eth Sails program from a local IDL without substrate RPC', async () => {
     await outputVaraEthDiscover(TO, { idl: FIXTURE_IDL });
 
