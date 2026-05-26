@@ -101,8 +101,10 @@ import {
   outputVaraEthSailsCall,
   outputVaraEthProgramTopUp,
   outputVaraEthWvaraTransfer,
+  _isNullReturnTypeForTests,
 } from '../commands/vara-eth-actions';
 import { CliError } from '../utils/errors';
+import { parseIdlFileV2 } from '../services/sails';
 
 const FIXTURE_IDL = join(__dirname, 'fixtures', 'sample-v2.idl');
 
@@ -371,6 +373,12 @@ describe('Vara.eth shared actions', () => {
         payload: '0x',
       }),
     }));
+  });
+
+  it('recognizes Sails unit return types as empty replies', async () => {
+    const sails = await parseIdlFileV2(FIXTURE_IDL);
+
+    expect(_isNullReturnTypeForTests(sails, { kind: 'tuple', types: [] }, 'Demo')).toBe(true);
   });
 
   it('uses zero address for Vara.eth Sails read origins only when no account is configured', async () => {

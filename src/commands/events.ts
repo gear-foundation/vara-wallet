@@ -60,7 +60,7 @@ export function registerEventsCommand(program: Command): void {
 function resolveExplicitChainFilter(cmd: Command): Chain | undefined {
   if (!hasCliOptionSource(cmd, 'chain')) return undefined;
   const opts = cmd.optsWithGlobals() as { chain?: string };
-  return resolveChain(opts.chain);
+  return opts.chain ? resolveChain(opts.chain) : undefined;
 }
 
 function hasCliOptionSource(cmd: Command, optionName: string): boolean {

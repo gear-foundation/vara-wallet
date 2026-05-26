@@ -836,11 +836,14 @@ function decodeVaraEthSailsReply(
 
 function isNullReturnType(sails: LoadedSails, typeDef: unknown, serviceName: string): boolean {
   try {
-    return describeType(sails, typeDef, serviceName).toLowerCase() === 'null';
+    const typeName = describeType(sails, typeDef, serviceName).toLowerCase();
+    return typeName === 'null' || typeName === '()';
   } catch {
     return false;
   }
 }
+
+export const _isNullReturnTypeForTests = isNullReturnType;
 
 function resolveVaraEthOrigin(opts: EthexeAccountOptions & { origin?: string }): Address {
   if (opts.origin) return asAddress(opts.origin, '--origin');
