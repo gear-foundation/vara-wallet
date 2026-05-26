@@ -316,6 +316,47 @@ describe('Vara.eth shared actions', () => {
     }));
   });
 
+  it('decodes empty replies for Vara.eth Sails v1 null-return functions', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vara-wallet-v1-null-reply-'));
+    const idl = join(dir, 'program.idl');
+    writeFileSync(idl, [
+      'constructor {',
+      '  Init : ();',
+      '};',
+      '',
+      'service VaraArkanoid {',
+      '  SimulateGame : (num_steps: u32) -> null;',
+      '};',
+    ].join('\n'));
+
+    try {
+      await outputVaraEthSailsCall(TO, 'VaraArkanoid/SimulateGame', {
+        account: 'hoodi-smoke',
+        idl,
+        args: '[10]',
+        value: '0',
+        via: 'eth',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(mockSendAndWait).toHaveBeenCalledWith(TO, expect.stringMatching(/^0x/), {
+      value: 0n,
+      via: 'eth',
+    });
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      kind: 'function',
+      service: 'VaraArkanoid',
+      method: 'SimulateGame',
+      result: null,
+      reply: expect.objectContaining({
+        payload: '0x',
+      }),
+    }));
+  });
+
   it('uses zero address for Vara.eth Sails read origins only when no account is configured', async () => {
     resolveEthexeAccountAddress.mockImplementationOnce(() => {
       throw new CliError(

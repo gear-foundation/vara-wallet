@@ -10,6 +10,7 @@ import { insertEvent, initEventStore } from '../services/event-store';
 import { readConfig } from '../services/config';
 import { resolveInitDescriptor, type InitOptions } from '../services/sails-init';
 import {
+  describeType,
   describeSailsProgram,
   getSailsVersion,
   isSailsV2,
@@ -826,8 +827,19 @@ function decodeVaraEthSailsReply(
       verbose(`Vara.eth Sails reply was not an enveloped v2 reply; falling back to method result decode. ${errorMessage(err)}`);
     }
   }
+  if (payload === '0x' && isNullReturnType(sails, method.returnTypeDef, serviceName)) {
+    return null;
+  }
   const decoded = method.decodeResult ? method.decodeResult(payload) : payload;
   return decodeSailsResult(sails, method.returnTypeDef, decoded, serviceName);
+}
+
+function isNullReturnType(sails: LoadedSails, typeDef: unknown, serviceName: string): boolean {
+  try {
+    return describeType(sails, typeDef, serviceName).toLowerCase() === 'null';
+  } catch {
+    return false;
+  }
 }
 
 function resolveVaraEthOrigin(opts: EthexeAccountOptions & { origin?: string }): Address {
