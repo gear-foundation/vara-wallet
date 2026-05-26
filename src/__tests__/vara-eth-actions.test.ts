@@ -101,8 +101,10 @@ import {
   outputVaraEthSailsCall,
   outputVaraEthProgramTopUp,
   outputVaraEthWvaraTransfer,
+  _isNullReturnTypeForTests,
 } from '../commands/vara-eth-actions';
 import { CliError } from '../utils/errors';
+import { parseIdlFileV2 } from '../services/sails';
 
 const FIXTURE_IDL = join(__dirname, 'fixtures', 'sample-v2.idl');
 
@@ -263,6 +265,22 @@ describe('Vara.eth shared actions', () => {
     expect(mockSendAndWait).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid Vara.eth message send paths before opening the API', async () => {
+    await expect(outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'ethe' as any,
+    })).rejects.toMatchObject({
+      code: 'INVALID_VIA',
+      meta: {
+        via: 'ethe',
+      },
+    });
+
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+  });
+
   it('discovers a Vara.eth Sails program from a local IDL without substrate RPC', async () => {
     await outputVaraEthDiscover(TO, { idl: FIXTURE_IDL });
 
@@ -314,6 +332,53 @@ describe('Vara.eth shared actions', () => {
       },
       willSubmit: false,
     }));
+  });
+
+  it('decodes empty replies for Vara.eth Sails v1 null-return functions', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vara-wallet-v1-null-reply-'));
+    const idl = join(dir, 'program.idl');
+    writeFileSync(idl, [
+      'constructor {',
+      '  Init : ();',
+      '};',
+      '',
+      'service VaraArkanoid {',
+      '  SimulateGame : (num_steps: u32) -> null;',
+      '};',
+    ].join('\n'));
+
+    try {
+      await outputVaraEthSailsCall(TO, 'VaraArkanoid/SimulateGame', {
+        account: 'hoodi-smoke',
+        idl,
+        args: '[10]',
+        value: '0',
+        via: 'eth',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(mockSendAndWait).toHaveBeenCalledWith(TO, expect.stringMatching(/^0x/), {
+      value: 0n,
+      via: 'eth',
+    });
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      kind: 'function',
+      service: 'VaraArkanoid',
+      method: 'SimulateGame',
+      result: null,
+      reply: expect.objectContaining({
+        payload: '0x',
+      }),
+    }));
+  });
+
+  it('recognizes Sails unit return types as empty replies', async () => {
+    const sails = await parseIdlFileV2(FIXTURE_IDL);
+
+    expect(_isNullReturnTypeForTests(sails, { kind: 'tuple', types: [] }, 'Demo')).toBe(true);
   });
 
   it('uses zero address for Vara.eth Sails read origins only when no account is configured', async () => {

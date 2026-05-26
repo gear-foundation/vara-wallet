@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { initEventStore, queryEvents, pruneEvents } from '../services/event-store';
+import { type Chain, resolveChain } from '../chains/types';
 import { output, verbose, addressToHex } from '../utils';
 import { asAddress } from '../utils/eth-types';
-import { resolveActiveChain } from '../utils/active-chain';
 import { parseDuration } from './subscribe/shared';
 
 export function registerEventsCommand(program: Command): void {
@@ -24,10 +24,8 @@ export function registerEventsCommand(program: Command): void {
 
       const since = options.since ? Date.now() - parseDuration(options.since) : undefined;
       const limit = parseInt(options.limit, 10);
-      const chain = options.chain ?? resolveActiveChain(cmd);
-      const program = options.program
-        ? (chain === 'vara-eth' ? asAddress(options.program, '--program') : addressToHex(options.program))
-        : undefined;
+      const chain = resolveExplicitChainFilter(cmd);
+      const program = normalizeProgramFilter(options.program, chain);
 
       const rows = queryEvents({ type: options.type, since, program, chain, network: options.network, limit });
       const parsed = rows.map((row) => ({
@@ -57,4 +55,30 @@ export function registerEventsCommand(program: Command): void {
 
       output({ pruned: count });
     });
+}
+
+function resolveExplicitChainFilter(cmd: Command): Chain | undefined {
+  if (!hasCliOptionSource(cmd, 'chain')) return undefined;
+  const opts = cmd.optsWithGlobals() as { chain?: string };
+  return opts.chain ? resolveChain(opts.chain) : undefined;
+}
+
+function hasCliOptionSource(cmd: Command, optionName: string): boolean {
+  let current: Command | undefined = cmd;
+  while (current) {
+    if (current.getOptionValueSource(optionName) === 'cli') return true;
+    current = current.parent ?? undefined;
+  }
+  return false;
+}
+
+function normalizeProgramFilter(program: string | undefined, chain: Chain | undefined): string | undefined {
+  if (!program) return undefined;
+  if (chain === 'vara-eth') return asAddress(program, '--program');
+  if (chain === 'vara') return addressToHex(program);
+  return isEthAddress(program) ? asAddress(program, '--program') : addressToHex(program);
+}
+
+function isEthAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
 }

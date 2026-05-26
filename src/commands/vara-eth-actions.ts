@@ -10,6 +10,7 @@ import { insertEvent, initEventStore } from '../services/event-store';
 import { readConfig } from '../services/config';
 import { resolveInitDescriptor, type InitOptions } from '../services/sails-init';
 import {
+  describeType,
   describeSailsProgram,
   getSailsVersion,
   isSailsV2,
@@ -158,7 +159,7 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   }
   const payload = asHex(opts.payload, '--payload');
   const value = parseOptionalBigInt(opts.value, '--value');
-  const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
+  const via = resolveVaraEthSendPath(opts.via ?? 'injected');
   const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
   const api = await getEthexeApi();
@@ -826,9 +827,23 @@ function decodeVaraEthSailsReply(
       verbose(`Vara.eth Sails reply was not an enveloped v2 reply; falling back to method result decode. ${errorMessage(err)}`);
     }
   }
+  if (payload === '0x' && isNullReturnType(sails, method.returnTypeDef, serviceName)) {
+    return null;
+  }
   const decoded = method.decodeResult ? method.decodeResult(payload) : payload;
   return decodeSailsResult(sails, method.returnTypeDef, decoded, serviceName);
 }
+
+function isNullReturnType(sails: LoadedSails, typeDef: unknown, serviceName: string): boolean {
+  try {
+    const typeName = describeType(sails, typeDef, serviceName).toLowerCase();
+    return typeName === 'null' || typeName === '()';
+  } catch {
+    return false;
+  }
+}
+
+export const _isNullReturnTypeForTests = isNullReturnType;
 
 function resolveVaraEthOrigin(opts: EthexeAccountOptions & { origin?: string }): Address {
   if (opts.origin) return asAddress(opts.origin, '--origin');
