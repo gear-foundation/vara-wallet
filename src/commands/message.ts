@@ -85,13 +85,14 @@ export function registerMessageCommand(program: Command): void {
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
-        if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher || options.units) {
+        if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher) {
           throw new CliError(
-            '--chain vara-eth message send supports --payload, --value, --via, --timeout-ms, --resume, and account options',
+            '--chain vara-eth message send supports --payload, --value, --units, --via, --timeout-ms, --resume, and account options',
             'UNSUPPORTED_CHAIN_OPTION',
           );
         }
-        await outputVaraEthMessageSend(destination, { ...opts, ...options });
+        const value = resolveAmount(options.value, options.units).toString();
+        await outputVaraEthMessageSend(destination, { ...opts, ...options, value });
         return;
       }
 

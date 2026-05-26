@@ -159,7 +159,7 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   }
   const payload = asHex(opts.payload, '--payload');
   const value = parseOptionalBigInt(opts.value, '--value');
-  const via: 'eth' | 'injected' = opts.via === 'eth' ? 'eth' : 'injected';
+  const via = resolveVaraEthSendPath(opts.via ?? 'injected');
   const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
   const api = await getEthexeApi();
