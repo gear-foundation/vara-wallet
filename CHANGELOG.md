@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.1] - 2026-05-27
+
+### Fixed
+
+- Bundle the HD-wallet crypto modules used by the CLI startup path so global npm installs do not fail with `Cannot find module '@noble/curves/ed25519'`.
+- Add a packed-install smoke check to the release workflow. It installs the generated tarball into a clean global prefix and runs `vara-wallet --version` before publishing.
+
 ## [0.20.0] - 2026-05-19
 
 One theme: **the wallet now drives Vara.eth as a first-class chain**. The substrate rail (`vara-wallet --chain vara`) is untouched. A parallel `vara-wallet --chain vara-eth` rail ships with read paths verified on mainnet + Hoodi, L1 write path verified on Hoodi, and an injected-tx persistence layer that survives kill/restart for terminal outcomes. Typed errors from `@vara-eth/api@0.5.0-rc.1` now surface as `MESSAGE_REVERTED` / `PROMISE_TIMEOUT` / `CHAIN_ID_MISMATCH` (etc.) directly in JSON output. Diagnostics flag `--no-validate-signature` lets operators bypass the validator-signature check on injected-path replies when triaging recovery failures.
