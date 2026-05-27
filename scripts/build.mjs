@@ -17,6 +17,8 @@ await build({
   // resolution can pick the CJS entry via the `main` field. Bundling them
   // followed the ESM `exports.import` path, which dragged in kzg-wasm's ESM
   // build that uses `import.meta.url` — unsupported in our CJS bundle.
+  // Keep HD-wallet crypto bundled: npm can install bundled scoped packages in
+  // a shape that leaves sibling scoped packages unavailable at global runtime.
   external: [
     'better-sqlite3',
     'smoldot',
@@ -24,10 +26,7 @@ await build({
     'viem',
     'kzg-wasm',
     '@noble/ciphers',
-    '@noble/curves',
     '@noble/hashes',
-    '@scure/bip32',
-    '@scure/bip39',
   ],
   define: {
     'process.env.VARA_WALLET_VERSION': JSON.stringify(pkg.version),
