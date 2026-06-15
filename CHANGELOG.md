@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.2] - 2026-06-15
+
+### Fixed
+
+- Bundle the Vara.eth runtime peers `viem` and `kzg-wasm` with the packed CLI so global npm installs can resolve `viem/utils` and `kzg-wasm` at startup.
+- Extend the packed-install smoke check to assert those runtime peer imports from the installed tarball before publish.
+
 ## [0.20.1] - 2026-05-27
 
 ### Fixed
