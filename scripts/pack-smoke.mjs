@@ -33,7 +33,7 @@ function assertInstalledResolve(prefix, request) {
   let packageJsonPath;
   for (const root of globalRoots) {
     try {
-      packageJsonPath = createRequire(join(root, 'resolve.cjs')).resolve('vara-wallet/package.json');
+      packageJsonPath = createRequire(root).resolve('vara-wallet/package.json');
       break;
     } catch {
       // Try the next npm global layout.
