@@ -8,7 +8,7 @@ cleanup work.
 
 - `vara-eth:*` subcommands honor global `--account` and `--passphrase`.
 - `reply.code` serializes as `{ tag, raw, reason }`.
-- `MessageRevertedError` from `@vara-eth/api@0.5.0-rc.1` surfaces as
+- `MessageRevertedError` from `@vara-eth/api@0.6.0-rc.0` surfaces as
   `MESSAGE_REVERTED` with `reason` and `functionName`.
 - `vara-eth:message send` exposes `--no-validate-signature` for injected-path
   diagnostics.
