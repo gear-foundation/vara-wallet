@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.20.3] - 2026-06-16
+
+### Changed
+
+- Update the vendored Vara.eth API package to `@vara-eth/api@0.6.0-rc.0` and refresh Vara.eth documentation references.
+
 ## [0.20.2] - 2026-06-15
 
 ### Fixed
