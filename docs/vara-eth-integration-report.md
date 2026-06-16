@@ -41,8 +41,8 @@ Rail-specific workflows remain available under `vara-eth:*`:
   Vara.eth testnet.
 - Direct `config set varaNetwork …` and `config set varaEthNetwork …` calls
   update the endpoint fields that actually drive future connections.
-- `@vara-eth/api@0.5.0-rc.1` is vendored through
-  `vendor/vara-eth-api-0.5.0-rc.1.tgz`.
+- `@vara-eth/api@0.6.0-rc.0` is vendored through
+  `vendor/vara-eth-api-0.6.0-rc.0.tgz`.
 - `vara-eth:message send` supports `--via eth` and `--via injected`; prefer
   `--via eth` for production writes until injected-path validator recovery is
   fully triaged.
