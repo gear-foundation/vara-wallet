@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.20.5] - 2026-07-13
+
+### Added
+
+- Add `vara-eth:session`, a persistent NDJSON Sails session for autonomous agents. It reuses the Vara.eth connection, encrypted named-wallet signer, and loaded IDLs across requests while returning decoded query results or accepted injected function submissions.
+
+### Fixed
+
+- Wait for injected Vara.eth transactions to be accepted before reporting their `txHash` and `messageId`, so validator acknowledgements are not mistaken for transaction identifiers.
+
 ## [0.20.4] - 2026-07-13
 
 ### Changed

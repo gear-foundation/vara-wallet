@@ -206,6 +206,20 @@ vara-wallet --chain vara-eth --network hoodi vara-eth:subscribe router
 
 Message sends and state-changing Sails calls default to `--wait reply`; use `--wait submitted` when only RPC acceptance and a transaction hash are needed. WVARA transfers and message replies default to `--wait receipt` and also accept `--wait submitted`. Injected sends remain available with `--via injected`; submit-only injected output includes the locally derived `messageId`, but does not validate a validator signature or wait for program execution. Use `--no-validate-signature` only for diagnostics when waiting for injected replies. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
 
+#### Persistent agent session
+
+For a sequence of Vara.eth Sails requests, use `vara-eth:session` instead of starting a new CLI process for each action. It keeps the API connection, selected encrypted wallet signer, and each loaded IDL in memory. The command reads one JSON request per stdin line and writes NDJSON responses, so an invalid request is reported without ending the session.
+
+```bash
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:session <<'EOF'
+{"id":"state-1","program":"0xMIRROR","method":"Game/State","args":[],"idl":"./game.idl"}
+{"id":"move-1","program":"0xMIRROR","method":"Game/Move","args":["north"],"idl":"./game.idl"}
+EOF
+```
+
+The first line is `{ "type": "ready", ... }`. Query results include the decoded reply; function results return `{ "status": "submitted", "txHash", "messageId" }` after the injected transaction is accepted. Functions do not wait for program execution or a reply. Requests require `program` and `method`; `args` must be a JSON array and `idl` is optional.
+
 ### `node`
 
 ```bash

@@ -54,6 +54,20 @@ The compatibility defaults remain completion-oriented: message sends and Sails f
 
 A direct Sails submit can skip validator bootstrap only when `--idl <path>` is supplied. Without a local IDL, the wallet must query Vara.eth for the program code ID and embedded/cached interface before encoding the call.
 
+## Persistent agent actions
+
+For agents that perform several Sails calls in one run, `vara-eth:session` removes repeated process startup, connection, signer, and IDL-loading work. It accepts one JSON request per stdin line and emits one NDJSON response per request. The session keeps running after a malformed request, making it suitable for an autonomous action loop.
+
+```bash
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:session <<'EOF'
+{"id":"read","program":"0xMIRROR","method":"Game/State","args":[],"idl":"./game.idl"}
+{"id":"act","program":"0xMIRROR","method":"Game/Move","args":["north"],"idl":"./game.idl"}
+EOF
+```
+
+The session writes a `ready` record first. Queries return a decoded result. Functions use the injected path and return `status: "submitted"` with a deterministic `txHash` and `messageId` once accepted; they do not wait for execution or a program reply. Send the same `program` and `idl` values on subsequent requests to reuse the loaded interface.
+
 Bridge / faucet links and full deployment status: see the official
 gear-tech announcement channels.
 
