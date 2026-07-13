@@ -22,6 +22,7 @@ const mockSigner = {};
 
 jest.mock('../services/vara-eth/api', () => ({
   getEthexeApi: jest.fn(),
+  getEthexeEthereumContext: jest.fn(),
   getMirrorClient: jest.fn(),
 }));
 
@@ -35,8 +36,9 @@ jest.mock('../utils/output', () => ({
   output: (data: unknown) => mockOutput(data),
 }));
 
-const { getEthexeApi, getMirrorClient } = require('../services/vara-eth/api') as {
+const { getEthexeApi, getEthexeEthereumContext, getMirrorClient } = require('../services/vara-eth/api') as {
   getEthexeApi: jest.Mock;
+  getEthexeEthereumContext: jest.Mock;
   getMirrorClient: jest.Mock;
 };
 const { resolveEthexeSigner } = require('../services/vara-eth/account') as {
@@ -57,6 +59,7 @@ function makeProgram(): Command {
 beforeEach(() => {
   jest.clearAllMocks();
   getEthexeApi.mockResolvedValue(mockApi);
+  getEthexeEthereumContext.mockReturnValue({ publicClient: mockApi.eth.publicClient });
   getMirrorClient.mockResolvedValue({
     sendReply: mockSendReply,
     claimValue: mockClaimValue,

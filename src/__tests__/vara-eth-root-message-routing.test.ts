@@ -60,6 +60,21 @@ describe('root --chain vara-eth message routing', () => {
     }));
   });
 
+  it('routes submit-only completion to the Vara.eth action', async () => {
+    const mirror = '0xabcdef0000000000000000000000000000000002';
+
+    await makeProgram().parseAsync([
+      '--chain', 'vara-eth',
+      'message', 'send', mirror,
+      '--payload', '0xabcd',
+      '--wait', 'submitted',
+    ], { from: 'user' });
+
+    expect(mockMessageSend).toHaveBeenCalledWith(mirror, expect.objectContaining({
+      wait: 'submitted',
+    }));
+  });
+
   it('still rejects native-only message send options on Vara.eth', async () => {
     const mirror = '0xabcdef0000000000000000000000000000000002';
 

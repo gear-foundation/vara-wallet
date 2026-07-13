@@ -19,6 +19,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
     .option('--payload <hex>', '0x-prefixed payload bytes (required unless --resume is set)')
     .option('--value <wei>', 'value in wei to attach (default: 0)')
     .option('--via <path>', 'injected (default) or eth (direct Mirror.sendMessage)', 'injected')
+    .option('--wait <stage>', 'completion stage: submitted or reply (default)', 'reply')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .option('--timeout-ms <ms>', 'timeout for injected promise wait (default: server-controlled)')
@@ -40,6 +41,7 @@ export function registerVaraEthMessageCommand(program: Command): void {
     .description('Reply to a previously received message')
     .requiredOption('--payload <hex>', '0x-prefixed reply payload')
     .option('--value <wei>', 'value to attach')
+    .option('--wait <stage>', 'completion stage: submitted or receipt (default)', 'receipt')
     .option('--account <name>', 'Vara.eth wallet name')
     .option('--passphrase <pass>', 'wallet passphrase')
     .action(async (mirrorArg: string, msgIdArg: string, _options: ReplyOptions, cmd: Command) => {

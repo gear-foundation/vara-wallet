@@ -29,7 +29,7 @@ export async function loadVaraEthSails(
       program: { codeId(programAddress: Address): Promise<Hex> };
       code: { getOriginal(codeId: Hex): Promise<Hex> };
     };
-  },
+  } | undefined,
   programAddress: Address,
   options: { idl?: string; requiredMethod?: VaraEthSailsMethodRequirement } = {},
 ): Promise<LoadedVaraEthSails> {
@@ -40,6 +40,14 @@ export async function loadVaraEthSails(
       codeId: null,
       source: 'local',
     };
+  }
+
+  if (!api) {
+    throw new CliError(
+      `No IDL source available for Vara.eth program ${programAddress}. Pass --idl <path.idl> for an Ethereum-only call.`,
+      'IDL_NOT_FOUND',
+      { programAddress },
+    );
   }
 
   let codeId: Hex;

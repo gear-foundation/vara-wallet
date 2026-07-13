@@ -42,8 +42,9 @@ export function registerBalanceCommand(program: Command): void {
     .argument('<to>', 'destination address (hex or SS58)')
     .argument('[amount]', 'amount to transfer (in VARA by default)')
     .option('--units <units>', 'amount units: human (default, = VARA) or raw')
+    .option('--wait <stage>', 'Vara.eth completion stage: submitted or receipt (default)', 'receipt')
     .option('--all', 'transfer entire balance (account will be reaped)')
-    .action(async (to: string, amount: string | undefined, options: { units?: string; all?: boolean }) => {
+    .action(async (to: string, amount: string | undefined, options: { units?: string; all?: boolean; wait?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
         if (options.all) {
@@ -52,7 +53,7 @@ export function registerBalanceCommand(program: Command): void {
         if (!amount) {
           throw new CliError('Provide <amount>', 'INVALID_ARGS');
         }
-        await outputVaraEthWvaraTransfer(to, amount, { ...opts, units: options.units });
+        await outputVaraEthWvaraTransfer(to, amount, { ...opts, units: options.units, wait: options.wait });
         return;
       }
 

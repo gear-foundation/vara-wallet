@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 import { keccak256 } from 'viem';
 
-import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
+import {
+  getEthexeApi,
+  getEthexeEthereumClient,
+  getEthexeEthereumContext,
+  getMirrorClient,
+} from '../services/vara-eth/api';
 import { resolveEthexeAccountAddress, resolveEthexeSigner, type EthexeAccountOptions } from '../services/vara-eth/account';
 import { loadVaraEthSails } from '../services/vara-eth/sails-idl';
 import { getById, initPromiseStore, insertPending, markFailed, markResolved } from '../services/vara-eth/promises';
@@ -42,12 +47,14 @@ export interface VaraEthSendOptions extends EthexeAccountOptions {
   timeoutMs?: string;
   validateSignature?: boolean;
   resume?: string;
+  wait?: string;
 }
 
 export interface VaraEthReplyOptions extends EthexeAccountOptions {
   payload?: string;
   value?: string;
   mirror?: string;
+  wait?: string;
 }
 
 export interface VaraEthStateReadOptions {
@@ -74,6 +81,7 @@ export interface VaraEthSailsCallOptions extends EthexeAccountOptions {
   estimate?: boolean;
   origin?: string;
   via?: 'eth' | 'injected';
+  wait?: string;
 }
 
 export async function outputVaraEthBalance(addressArg: string | undefined, opts: EthexeAccountOptions = {}): Promise<void> {
@@ -117,18 +125,45 @@ export async function outputVaraEthBalance(addressArg: string | undefined, opts:
 export async function outputVaraEthWvaraTransfer(
   toArg: string,
   amountArg: string,
-  options: EthexeAccountOptions & { units?: string } = {},
+  options: EthexeAccountOptions & { units?: string; wait?: string } = {},
 ): Promise<void> {
   const to = asAddress(toArg, 'to');
-  const api = await getEthexeApi();
-  const { amount, decimals, units } = await resolveVaraEthTokenAmount(api, amountArg, options.units);
+  const wait = resolveVaraEthWaitMode(options.wait, ['submitted', 'receipt'], 'receipt');
+  const context = getEthexeEthereumContext();
+  const [ethClient, signer] = await Promise.all([
+    getEthexeEthereumClient(),
+    resolveEthexeSigner(context.publicClient, options),
+  ]);
+  ethClient.setSigner(signer);
+  const units = validateUnits(options.units) ?? 'human';
+  const rawSubmit = wait === 'submitted' && units === 'raw';
+  const amountInfo = rawSubmit
+    ? { amount: BigInt(amountArg), decimals: null }
+    : await resolveVaraEthTokenAmount(ethClient.wvara, amountArg, units);
+  const { amount, decimals } = amountInfo;
   if (amount <= 0n) throw new CliError('Amount must be positive', 'INVALID_AMOUNT');
 
-  const signer = await resolveEthexeSigner(api.eth.publicClient, options);
-  api.eth.setSigner(signer);
-
   const from = await signer.getAddress();
-  const txManager = await api.eth.wvara.transfer(to, amount);
+  const txManager = await ethClient.wvara.transfer(to, amount);
+  if (wait === 'submitted') {
+    const txHash = await txManager.send();
+    output({
+      chain: 'vara-eth',
+      display: 'Vara.eth',
+      txHash,
+      blockNumber: null,
+      status: 'submitted',
+      wait,
+      from,
+      to,
+      amount: decimals === null ? null : minimalToVara(amount, decimals),
+      decimals,
+      amountRaw: amount.toString(),
+      units,
+    });
+    return;
+  }
+
   const receipt = await txManager.sendAndWaitForReceipt();
 
   output({
@@ -137,9 +172,11 @@ export async function outputVaraEthWvaraTransfer(
     txHash: receipt.transactionHash,
     blockNumber: Number(receipt.blockNumber),
     status: receipt.status,
+    wait,
     from,
     to,
-    amount: minimalToVara(amount, decimals),
+    amount: minimalToVara(amount, decimals!),
+    decimals,
     amountRaw: amount.toString(),
     units,
   });
@@ -160,20 +197,67 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   const payload = asHex(opts.payload, '--payload');
   const value = parseOptionalBigInt(opts.value, '--value');
   const via = resolveVaraEthSendPath(opts.via ?? 'injected');
+  const wait = resolveVaraEthWaitMode(opts.wait, ['submitted', 'reply'], 'reply');
   const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
-  const api = await getEthexeApi();
-  const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
-  api.eth.setSigner(signer);
-
   const validateSignature = opts.validateSignature !== false;
-  const persist = via === 'injected';
+  const persist = via === 'injected' && wait === 'reply';
   if (persist) initPromiseStore();
+  const ethereumContext = getEthexeEthereumContext();
+  const apiPromise = via === 'injected' || wait === 'reply' ? getEthexeApi() : null;
+  const [api, signer] = await Promise.all([
+    apiPromise,
+    resolveEthexeSigner(ethereumContext.publicClient, opts),
+  ]);
+  api?.eth.setSigner(signer);
   const signerAddress = persist ? await signer.getAddress() : '0x';
+
+  if (wait === 'submitted') {
+    let txHash: Hex;
+    let messageId: Hex | null;
+
+    if (via === 'eth') {
+      const mirrorClient = await getMirrorClient(mirror, signer);
+      const tx = await mirrorClient.sendMessage(payload, value);
+      txHash = await tx.send();
+      messageId = null;
+    } else {
+      if ((value ?? 0n) !== 0n) {
+        throw new CliError('Injected Vara.eth messages cannot attach value. Use --via eth.', 'INVALID_VALUE_FOR_INJECTED');
+      }
+      const injectedTx = await api!.createInjectedTransaction({
+        destination: mirror,
+        payload,
+        value: 0n,
+      });
+      txHash = asHex(await injectedTx.send(), 'injected transaction hash');
+      messageId = injectedTx.messageId;
+    }
+
+    if (persist) {
+      try {
+        insertPending(buildPendingRow({ txHash, mirror, payload, value, signerAddress }));
+      } catch {
+        // Persistence should not fail a successful submit.
+      }
+    }
+
+    output({
+      mirror,
+      via,
+      wait,
+      status: 'submitted',
+      messageId,
+      txHash,
+      validator: null,
+      reply: null,
+    });
+    return;
+  }
 
   let result;
   try {
-    result = await api.programs.sendAndWait(mirror, payload, { value, via, timeoutMs, validateSignature });
+    result = await api!.programs.sendAndWait(mirror, payload, { value, via, timeoutMs, validateSignature });
   } catch (err) {
     if (persist) {
       const txHash = extractTxHash(err);
@@ -215,6 +299,8 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   output({
     mirror,
     via,
+    wait,
+    status: 'resolved',
     messageId: result.messageId,
     txHash: result.txHash,
     validator: result.validator ?? null,
@@ -237,13 +323,26 @@ export async function outputVaraEthMessageReply(
   const messageId = asHex(msgIdArg, 'messageId');
   const payload = asHex(opts.payload!, '--payload');
   const value = parseOptionalBigInt(opts.value, '--value');
+  const wait = resolveVaraEthWaitMode(opts.wait, ['submitted', 'receipt'], 'receipt');
 
-  const api = await getEthexeApi();
-  const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
-  api.eth.setSigner(signer);
+  const { publicClient } = getEthexeEthereumContext();
+  const signer = await resolveEthexeSigner(publicClient, opts);
 
   const mirrorClient = await getMirrorClient(mirror, signer);
   const tx = await mirrorClient.sendReply(messageId, payload, value);
+  if (wait === 'submitted') {
+    const txHash = await tx.send();
+    output({
+      mirror,
+      repliedTo: messageId,
+      txHash,
+      blockNumber: null,
+      status: 'submitted',
+      wait,
+    });
+    return;
+  }
+
   const receipt = await tx.sendAndWaitForReceipt();
 
   output({
@@ -252,6 +351,7 @@ export async function outputVaraEthMessageReply(
     txHash: receipt.transactionHash,
     blockNumber: Number(receipt.blockNumber),
     status: receipt.status,
+    wait,
   });
 }
 
@@ -407,8 +507,9 @@ export async function outputVaraEthSailsCall(
 ): Promise<void> {
   const programAddress = asAddress(programArg, 'programAddress');
   const via = resolveVaraEthSendPath(opts.via);
+  const wait = resolveVaraEthWaitMode(opts.wait, ['submitted', 'reply'], 'reply');
   const { serviceName, methodName } = parseSailsMethod(methodArg);
-  const api = await getEthexeApi();
+  let api = opts.idl === undefined ? await getEthexeApi() : undefined;
   const valueInfo = resolveVaraEthValue(opts.value, opts.units);
   const loaded = await loadVaraEthSails(api, programAddress, {
     idl: opts.idl,
@@ -419,10 +520,19 @@ export async function outputVaraEthSailsCall(
   args = coerceArgsAuto(args, resolved.method.args || [], loaded.sails, serviceName);
   const encodedPayload = resolved.method.encodePayload(...args) as Hex;
   const origin = resolveVaraEthOrigin(opts);
+  const ethereumOnlySubmit = wait === 'submitted'
+    && via === 'eth'
+    && resolved.kind === 'function'
+    && !opts.dryRun
+    && !opts.estimate;
+  const needsValidatorApi = resolved.kind === 'query'
+    || opts.estimate === true
+    || (!opts.dryRun && !ethereumOnlySubmit);
+  if (!api && needsValidatorApi) api = await getEthexeApi();
 
   if (opts.dryRun) {
     const feeEstimate = opts.estimate && resolved.kind === 'function'
-      ? await estimateVaraEthSendFee(api, programAddress, encodedPayload, valueInfo.raw, opts)
+      ? await estimateVaraEthSendFee(api!, programAddress, encodedPayload, valueInfo.raw, opts)
       : undefined;
     output({
       chain: 'vara-eth',
@@ -444,7 +554,7 @@ export async function outputVaraEthSailsCall(
   }
 
   if (resolved.kind === 'query') {
-    const reply = await api.call.program.calculateReplyForHandle(origin, programAddress, encodedPayload, valueInfo.raw);
+    const reply = await api!.call.program.calculateReplyForHandle(origin, programAddress, encodedPayload, valueInfo.raw);
     output({
       chain: 'vara-eth',
       kind: 'query',
@@ -477,13 +587,14 @@ export async function outputVaraEthSailsCall(
       value: valueInfo.human,
       valueRaw: valueInfo.raw.toString(),
       units: valueInfo.units,
-      feeEstimate: await estimateVaraEthSendFee(api, programAddress, encodedPayload, valueInfo.raw, opts),
+      feeEstimate: await estimateVaraEthSendFee(api!, programAddress, encodedPayload, valueInfo.raw, opts),
     });
     return;
   }
 
-  const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
-  api.eth.setSigner(signer);
+  const publicClient = api?.eth.publicClient ?? getEthexeEthereumContext().publicClient;
+  const signer = await resolveEthexeSigner(publicClient, opts);
+  api?.eth.setSigner(signer);
   const from = await signer.getAddress();
   if (opts.origin && origin.toLowerCase() !== from.toLowerCase()) {
     throw new CliError(
@@ -492,7 +603,50 @@ export async function outputVaraEthSailsCall(
       { origin, signer: from },
     );
   }
-  const result = await api.programs.sendAndWait(programAddress, encodedPayload, {
+
+  if (wait === 'submitted') {
+    let txHash: Hex;
+    let messageId: Hex | null;
+    if (via === 'eth') {
+      const mirrorClient = await getMirrorClient(programAddress, signer);
+      const tx = await mirrorClient.sendMessage(encodedPayload, valueInfo.raw);
+      txHash = await tx.send();
+      messageId = null;
+    } else {
+      if (valueInfo.raw !== 0n) {
+        throw new CliError('Injected Vara.eth messages cannot attach value. Use --via eth.', 'INVALID_VALUE_FOR_INJECTED');
+      }
+      const injectedTx = await api!.createInjectedTransaction({
+        destination: programAddress,
+        payload: encodedPayload,
+        value: 0n,
+      });
+      txHash = asHex(await injectedTx.send(), 'injected transaction hash');
+      messageId = injectedTx.messageId;
+    }
+
+    output({
+      chain: 'vara-eth',
+      kind: 'function',
+      status: 'submitted',
+      wait,
+      programAddress,
+      service: serviceName,
+      method: methodName,
+      origin: from,
+      via,
+      messageId,
+      txHash,
+      value: valueInfo.human,
+      valueRaw: valueInfo.raw.toString(),
+      units: valueInfo.units,
+      result: null,
+      reply: null,
+    });
+    return;
+  }
+
+  const result = await api!.programs.sendAndWait(programAddress, encodedPayload, {
     value: valueInfo.raw,
     via,
   });
@@ -504,6 +658,8 @@ export async function outputVaraEthSailsCall(
     method: methodName,
     origin: from,
     via,
+    wait,
+    status: 'resolved',
     messageId: result.messageId,
     txHash: result.txHash,
     validator: result.validator ?? null,
@@ -566,7 +722,7 @@ export async function outputVaraEthProgramTopUp(
 ): Promise<void> {
   const mirror = asAddress(mirrorArg, 'mirror');
   const api = await getEthexeApi();
-  const { amount, decimals, units } = await resolveVaraEthTokenAmount(api, opts.amount, opts.units);
+  const { amount, decimals, units } = await resolveVaraEthTokenAmount(api.eth.wvara, opts.amount, opts.units);
   if (amount <= 0n) throw new CliError('Amount must be positive', 'INVALID_AMOUNT');
 
   const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
@@ -602,7 +758,7 @@ export async function subscribeVaraEthProgram(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose(`subscribing to program events ${mirror}`);
   let seen = 0;
   const unsubscribe = api.stream.programEvents(
@@ -633,7 +789,7 @@ export async function subscribeVaraEthRouter(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose('subscribing to router events');
   let seen = 0;
   const unsubscribe = api.stream.routerEvents(
@@ -662,7 +818,7 @@ export async function subscribeVaraEthBlocks(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose('subscribing to blocks');
   let seen = 0;
   const unsubscribe = api.stream.blocks(
@@ -861,6 +1017,20 @@ function resolveVaraEthSendPath(via: string | undefined): 'eth' | 'injected' {
   throw new CliError('--via must be "eth" or "injected"', 'INVALID_VIA', { via });
 }
 
+function resolveVaraEthWaitMode<T extends string>(
+  wait: string | undefined,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  const resolved = wait ?? fallback;
+  if ((allowed as readonly string[]).includes(resolved)) return resolved as T;
+  throw new CliError(
+    `--wait must be one of: ${allowed.join(', ')}`,
+    'INVALID_WAIT_MODE',
+    { wait: resolved, allowed },
+  );
+}
+
 function resolveVaraEthValue(
   amountArg: string,
   units: string | undefined,
@@ -903,12 +1073,12 @@ function parseVaraEthTokenAmount(amount: string, units: string | undefined, deci
 }
 
 async function resolveVaraEthTokenAmount(
-  api: Awaited<ReturnType<typeof getEthexeApi>>,
+  wvara: { decimals(): Promise<number> },
   amountArg: string,
   units: string | undefined,
 ): Promise<{ amount: bigint; decimals: number; units: 'human' | 'raw' }> {
   const resolvedUnits = validateUnits(units) ?? 'human';
-  const decimals = await api.eth.wvara.decimals();
+  const decimals = await wvara.decimals();
   return {
     amount: parseVaraEthTokenAmount(amountArg, resolvedUnits, decimals),
     decimals,

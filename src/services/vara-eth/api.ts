@@ -9,10 +9,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { createPublicClient, webSocket, type Address, type PublicClient } from 'viem';
+import { createPublicClient, http, webSocket, type Address, type PublicClient } from 'viem';
 import {
   createVaraEthApi,
-  HttpVaraEthProvider,
+  EthereumClient,
   WsVaraEthProvider,
   getMirrorClient as makeMirrorClient,
   type ITransactionSigner,
@@ -23,22 +23,41 @@ import {
 import { CliError, classifyTransportError } from '../../utils/errors';
 import { readConfig } from '../config';
 import { resolveVaraEthNetwork } from '../../chains/vara-eth/networks';
+import { markStage } from '../../utils/timing';
 
 interface CacheEntry {
   api: VaraEthApi;
-  ws: WsVaraEthProvider | HttpVaraEthProvider;
+  ws: WsVaraEthProvider;
 }
 
 let cached: CacheEntry | null = null;
+let cachedEthereumContext: EthexeEthereumContext | null = null;
+let cachedEthereumClient: Promise<EthereumClient> | null = null;
 
 const ETHEXE_CONNECTION_TIMEOUT_MS = 10_000;
 
-interface EthexeApiOptions {
+export interface EthexeApiOptions {
   varaEthRpc?: string;
   ethereumRpc?: string;
+  ethereumHttpRpc?: string;
+  /** Use WebSocket only for long-lived event streams; requests prefer HTTP. */
+  ethereumTransport?: 'request' | 'stream';
   routerAddress?: Address;
   /** Resolved Vara.eth network preset from --network. */
-  networkPreset?: { varaEthRpc: string; ethereumRpc: string; routerAddress: `0x${string}` | null };
+  networkPreset?: {
+    varaEthRpc: string;
+    ethereumRpc: string;
+    ethereumHttpRpc?: string;
+    routerAddress: `0x${string}` | null;
+  };
+}
+
+export interface EthexeEthereumContext {
+  publicClient: PublicClient;
+  routerAddress: Address;
+  varaEthRpc: string;
+  endpoint: string;
+  transport: 'http' | 'websocket';
 }
 
 const BROADCAST_CANDIDATE_NAMES = new Set(['run-latest.json', 'broadcast.log.json']);
@@ -54,7 +73,7 @@ function asAddress(value: unknown): Address | undefined {
 
 function withEthexeConnectionTimeout<T>(
   promise: Promise<T>,
-  endpoint: string,
+  endpoint: string | (() => string),
   cleanupAfterTimeout?: () => void,
 ): Promise<T> {
   let didTimeout = false;
@@ -64,8 +83,9 @@ function withEthexeConnectionTimeout<T>(
       () => {
         didTimeout = true;
         cleanupAfterTimeout?.();
+        const timedOutEndpoint = typeof endpoint === 'function' ? endpoint() : endpoint;
         reject(new CliError(
-          `Connection to ${endpoint} timed out after 10s. Check your network or VARA_ETH_RPC setting.`,
+          `Connection to ${timedOutEndpoint} timed out after 10s. Check your configured RPC endpoints.`,
           'CONNECTION_TIMEOUT',
         ));
       },
@@ -79,6 +99,20 @@ function withEthexeConnectionTimeout<T>(
     }),
     timeoutPromise,
   ]);
+}
+
+function errorMentionsEndpoint(error: unknown, endpoint: string): boolean {
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === 'string') return current.includes(endpoint);
+    if (typeof current !== 'object' || seen.has(current)) return false;
+    seen.add(current);
+    const wrapped = current as { message?: unknown; cause?: unknown };
+    if (typeof wrapped.message === 'string' && wrapped.message.includes(endpoint)) return true;
+    current = wrapped.cause;
+  }
+  return false;
 }
 
 function findBroadcastArtifacts(root = process.cwd()): string[] {
@@ -162,12 +196,14 @@ function discoverLocalRouterAddress(root = process.cwd()): Address | undefined {
  * Resolves the Vara.eth endpoint stack from explicit options → command-line
  * network preset → env vars → config → config network preset.
  *
- * Required: `varaEthRpc` (WS), `ethereumRpc` (WS), `routerAddress` (0x-hex).
+ * Required: `varaEthRpc` (WS), `ethereumRpc`, `routerAddress` (0x-hex).
+ * `ethereumHttpRpc` is optional and used for one-shot requests when available.
  * Throws {@link CliError} with `MISSING_ETHEXE_CONFIG` if any are missing.
  */
 export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
   varaEthRpc: string;
   ethereumRpc: string;
+  ethereumHttpRpc?: string;
   routerAddress: Address;
 } {
   const config = readConfig();
@@ -176,12 +212,19 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
     Boolean(process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC || process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC);
   const cliPresetVaraEthRpc = options.networkPreset?.varaEthRpc ?? process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC;
   const cliPresetEthereumRpc = options.networkPreset?.ethereumRpc ?? process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC;
+  const cliPresetEthereumHttpRpc = options.networkPreset?.ethereumHttpRpc
+    ?? process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_HTTP_RPC;
   const cliPresetRouter =
     options.networkPreset?.routerAddress ??
     (process.env.VARA_ETH_NETWORK_PRESET_ROUTER as Address | undefined);
 
   const varaEthRpc = options.varaEthRpc ?? cliPresetVaraEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? configPreset?.varaEthRpc;
   const ethereumRpc = options.ethereumRpc ?? cliPresetEthereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? configPreset?.ethereumRpc;
+  const matchingCliPresetHttpRpc = ethereumRpc === cliPresetEthereumRpc ? cliPresetEthereumHttpRpc : undefined;
+  let ethereumHttpRpc = options.ethereumHttpRpc ?? matchingCliPresetHttpRpc ?? process.env.ETHEREUM_HTTP_RPC;
+  if (!ethereumHttpRpc && !hasCliPreset && !options.ethereumRpc && ethereumRpc === configPreset?.ethereumRpc) {
+    ethereumHttpRpc = configPreset?.ethereumHttpRpc;
+  }
   let routerAddress = options.routerAddress;
 
   if (!routerAddress && hasCliPreset) {
@@ -213,7 +256,72 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
     );
   }
 
-  return { varaEthRpc, ethereumRpc, routerAddress };
+  return { varaEthRpc, ethereumRpc, ethereumHttpRpc, routerAddress };
+}
+
+function createEthereumPublicClient(
+  endpoint: string,
+  configKey: 'ethereumRpc' | 'ethereumHttpRpc',
+): PublicClient {
+  if (/^https?:\/\//i.test(endpoint)) {
+    return createPublicClient({ transport: http(endpoint) }) as PublicClient;
+  }
+  if (/^wss?:\/\//i.test(endpoint)) {
+    return createPublicClient({ transport: webSocket(endpoint) }) as PublicClient;
+  }
+  throw new CliError(
+    `Unsupported Ethereum RPC URL "${endpoint}". Expected http(s):// or ws(s)://.`,
+    'INVALID_CONFIG_VALUE',
+    { key: configKey, value: endpoint },
+  );
+}
+
+/**
+ * Returns the request-mode Ethereum context without opening the Vara.eth
+ * validator connection. Direct Mirror and WVARA writes use this path when the
+ * caller only needs Ethereum transaction submission or an L1 receipt.
+ */
+export function getEthexeEthereumContext(options: EthexeApiOptions = {}): EthexeEthereumContext {
+  if (cachedEthereumContext) return cachedEthereumContext;
+
+  const cfg = resolveEthexeConfig(options);
+  const usesEthereumHttpRpc = options.ethereumTransport !== 'stream' && cfg.ethereumHttpRpc !== undefined;
+  const endpoint = usesEthereumHttpRpc ? cfg.ethereumHttpRpc! : cfg.ethereumRpc;
+  const configKey = usesEthereumHttpRpc ? 'ethereumHttpRpc' : 'ethereumRpc';
+  const transport = /^https?:\/\//i.test(endpoint) ? 'http' : 'websocket';
+  const publicClient = createEthereumPublicClient(endpoint, configKey);
+
+  cachedEthereumContext = {
+    publicClient,
+    routerAddress: cfg.routerAddress,
+    varaEthRpc: cfg.varaEthRpc,
+    endpoint,
+    transport,
+  };
+  markStage('vara_eth_config', { ethereumTransport: transport });
+  return cachedEthereumContext;
+}
+
+/**
+ * Builds the Ethereum-side client without initializing the Vara.eth validator
+ * API. WVARA and Router transactions need this client; direct Mirror sends can
+ * use {@link getEthexeEthereumContext} alone.
+ */
+export function getEthexeEthereumClient(options: EthexeApiOptions = {}): Promise<EthereumClient> {
+  if (cachedEthereumClient) return cachedEthereumClient;
+
+  const context = getEthexeEthereumContext(options);
+  const client = new EthereumClient(context.publicClient, context.routerAddress);
+  let initialization: Promise<EthereumClient>;
+  initialization = withEthexeConnectionTimeout(
+    client.waitForInitialization().then(() => client),
+    context.endpoint,
+  ).catch((rawError) => {
+    if (cachedEthereumClient === initialization) cachedEthereumClient = null;
+    throw classifyTransportError(rawError, { endpoint: context.endpoint }) ?? rawError;
+  });
+  cachedEthereumClient = initialization;
+  return initialization;
 }
 
 /**
@@ -224,29 +332,46 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
 export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<VaraEthApi> {
   if (cached) return cached.api;
 
-  const cfg = resolveEthexeConfig(options);
+  const ethereumContext = getEthexeEthereumContext(options);
+  const {
+    endpoint: ethereumEndpoint,
+    transport: ethereumTransport,
+    publicClient,
+    varaEthRpc,
+    routerAddress,
+  } = ethereumContext;
 
-  const ws = new WsVaraEthProvider(cfg.varaEthRpc);
+  const ws = new WsVaraEthProvider(varaEthRpc);
   const disconnectWs = () => {
     try {
-      ws.disconnect?.();
+      const disconnect = ws.disconnect?.();
+      void disconnect?.catch(() => {});
     } catch {
       // ignore failed cleanup after connect/bootstrap failure
     }
   };
+  let validatorConnected = false;
+  const timeoutEndpoint = () => validatorConnected ? ethereumEndpoint : varaEthRpc;
   let api: VaraEthApi;
   try {
-    await withEthexeConnectionTimeout(ws.connect(), cfg.varaEthRpc, disconnectWs);
-
-    const publicClient = createPublicClient({ transport: webSocket(cfg.ethereumRpc) }) as PublicClient;
-    api = await withEthexeConnectionTimeout(
-      createVaraEthApi(ws, publicClient, cfg.routerAddress),
-      cfg.varaEthRpc,
+    const [, initializedApi] = await withEthexeConnectionTimeout(
+      Promise.all([
+        ws.connect().then(() => {
+          validatorConnected = true;
+        }),
+        createVaraEthApi(ws, publicClient, routerAddress),
+      ]),
+      timeoutEndpoint,
       disconnectWs,
     );
+    api = initializedApi;
+    markStage('vara_eth_connect', { ethereumTransport });
   } catch (rawErr) {
     if (!(rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT')) disconnectWs();
-    throw classifyTransportError(rawErr, { endpoint: cfg.varaEthRpc }) ?? rawErr;
+    const failedEndpoint = rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT'
+      ? timeoutEndpoint()
+      : (errorMentionsEndpoint(rawErr, ethereumEndpoint) ? ethereumEndpoint : varaEthRpc);
+    throw classifyTransportError(rawErr, { endpoint: failedEndpoint }) ?? rawErr;
   }
 
   cached = { api, ws };
@@ -254,22 +379,25 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
 }
 
 /**
- * Builds a `MirrorClient` for the given program address, reusing the cached
- * `publicClient` from {@link getEthexeApi}. Optional `signer` switches the
- * client into write mode.
+ * Builds a `MirrorClient` for the given program address from the lightweight
+ * Ethereum request context. Optional `signer` switches the client into write
+ * mode without opening the Vara.eth validator connection.
  */
 export async function getMirrorClient(address: Address, signer?: ITransactionSigner): Promise<MirrorClient> {
-  const api = await getEthexeApi();
-  return makeMirrorClient({ address, publicClient: api.eth.publicClient, signer });
+  const { publicClient } = getEthexeEthereumContext();
+  return makeMirrorClient({ address, publicClient, signer });
 }
 
 /** Tears down the cached Vara.eth connections. Safe to call when nothing is open. */
 export function disconnectEthexeApi(): void {
-  if (!cached) return;
-  try {
-    cached.ws.disconnect?.();
-  } catch {
-    // ignore — disconnect during shutdown
+  if (cached) {
+    try {
+      cached.ws.disconnect?.();
+    } catch {
+      // ignore — disconnect during shutdown
+    }
   }
   cached = null;
+  cachedEthereumContext = null;
+  cachedEthereumClient = null;
 }

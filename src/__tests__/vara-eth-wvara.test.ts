@@ -7,7 +7,10 @@
  * service helpers directly to keep tests fast.
  */
 
+import { Command } from 'commander';
+
 import { CliError } from '../utils/errors';
+import { registerVaraEthWvaraCommand } from '../commands/vara-eth-wvara';
 
 // ---- stubs ----------------------------------------------------------------
 
@@ -47,6 +50,8 @@ const mockSigner = { getAddress: mockGetAddress, sendTransaction: jest.fn() };
 
 jest.mock('../services/vara-eth/api', () => ({
   getEthexeApi: jest.fn(),
+  getEthexeEthereumClient: jest.fn(),
+  getEthexeEthereumContext: jest.fn(),
   getMirrorClient: jest.fn(),
   resolveEthexeConfig: jest.fn(),
 }));
@@ -55,8 +60,15 @@ jest.mock('../services/vara-eth/account', () => ({
   resolveEthexeSigner: jest.fn(),
 }));
 
-const { getEthexeApi } = require('../services/vara-eth/api') as {
+const mockOutput = jest.fn();
+jest.mock('../utils/output', () => ({
+  output: (data: unknown) => mockOutput(data),
+}));
+
+const { getEthexeApi, getEthexeEthereumClient, getEthexeEthereumContext } = require('../services/vara-eth/api') as {
   getEthexeApi: jest.Mock;
+  getEthexeEthereumClient: jest.Mock;
+  getEthexeEthereumContext: jest.Mock;
 };
 const { resolveEthexeSigner } = require('../services/vara-eth/account') as {
   resolveEthexeSigner: jest.Mock;
@@ -65,6 +77,8 @@ const { resolveEthexeSigner } = require('../services/vara-eth/account') as {
 beforeEach(() => {
   jest.clearAllMocks();
   getEthexeApi.mockResolvedValue(mockApi);
+  getEthexeEthereumClient.mockResolvedValue(mockApi.eth);
+  getEthexeEthereumContext.mockReturnValue({ publicClient: mockPublicClient });
   resolveEthexeSigner.mockResolvedValue(mockSigner);
   mockTransfer.mockResolvedValue(mockTxManager);
   mockApprove.mockResolvedValue(mockTxManager);
@@ -77,6 +91,13 @@ beforeEach(() => {
     signature: '0xsig',
   });
 });
+
+function makeProgram(): Command {
+  const program = new Command();
+  program.exitOverride();
+  registerVaraEthWvaraCommand(program);
+  return program;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -106,6 +127,20 @@ describe('vara-eth:wvara transfer', () => {
 
     expect(mockTransfer).toHaveBeenCalledWith('0xabcdef0000000000000000000000000000000002', 500n);
     expect(receipt.transactionHash).toBe('0xdeadbeef');
+  });
+
+  it('preserves a reverted receipt status instead of reporting confirmation', async () => {
+    mockSendAndWaitForReceipt.mockResolvedValueOnce({ transactionHash: '0xdeadbeef', status: 'reverted' });
+
+    await makeProgram().parseAsync([
+      'vara-eth:wvara', 'transfer', '0xabcdef0000000000000000000000000000000002', '500',
+    ], { from: 'user' });
+
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      txHash: '0xdeadbeef',
+      status: 'reverted',
+      wait: 'receipt',
+    }));
   });
 });
 

@@ -1,7 +1,10 @@
 export type VaraEthNetwork = 'mainnet' | 'hoodi' | 'local';
 
 export interface VaraEthNetworkConfig {
+  /** Ethereum WebSocket endpoint used by event streams. */
   ethereumRpc: string;
+  /** Ethereum HTTP endpoint used by one-shot requests to avoid a WS handshake. */
+  ethereumHttpRpc?: string;
   beaconRpc?: string; // for EIP-7594 blob lookups (code upload)
   varaEthRpc: string;
   routerAddress: `0x${string}` | null; // null = lookup at runtime (Anvil dev)
@@ -21,6 +24,7 @@ export interface VaraEthNetworkConfig {
 export const VARA_ETH_NETWORKS: Readonly<Record<VaraEthNetwork, VaraEthNetworkConfig>> = {
   mainnet: {
     ethereumRpc: 'wss://mainnet-reth-rpc.gear-tech.io/ws',
+    ethereumHttpRpc: 'https://mainnet-reth-rpc.gear-tech.io',
     beaconRpc: 'https://mainnet-lighthouse-rpc.gear-tech.io',
     varaEthRpc: 'wss://validator-1-eth.vara.network',
     routerAddress: '0x9C13FE9242dfe2ba2Cd446480A9308279aA74cb6',
@@ -29,6 +33,7 @@ export const VARA_ETH_NETWORKS: Readonly<Record<VaraEthNetwork, VaraEthNetworkCo
   },
   hoodi: {
     ethereumRpc: 'wss://hoodi-reth-rpc.gear-tech.io/ws',
+    ethereumHttpRpc: 'https://hoodi-reth-rpc.gear-tech.io',
     beaconRpc: 'https://hoodi-lighthouse-rpc.gear-tech.io',
     varaEthRpc: 'wss://vara-eth-validator-1.gear-tech.io',
     routerAddress: '0xE549b0AfEdA978271FF7E712232B9F7f39A0b060',
@@ -37,6 +42,7 @@ export const VARA_ETH_NETWORKS: Readonly<Record<VaraEthNetwork, VaraEthNetworkCo
   },
   local: {
     ethereumRpc: 'ws://127.0.0.1:8545',
+    ethereumHttpRpc: 'http://127.0.0.1:8545',
     varaEthRpc: 'ws://127.0.0.1:9944',
     routerAddress: null, // discovered from Anvil broadcast artifact at runtime
     blockTimeMs: 1_000,

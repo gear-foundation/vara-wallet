@@ -83,6 +83,7 @@ describe('root --chain vara-eth Sails routing', () => {
       '--idl', 'p.idl',
       '--origin', '0xabcdef0000000000000000000000000000000001',
       '--via', 'eth',
+      '--wait', 'submitted',
       '--dry-run',
     ], { from: 'user' });
 
@@ -91,6 +92,7 @@ describe('root --chain vara-eth Sails routing', () => {
       idl: 'p.idl',
       origin: '0xabcdef0000000000000000000000000000000001',
       via: 'eth',
+      wait: 'submitted',
       dryRun: true,
     }));
   });

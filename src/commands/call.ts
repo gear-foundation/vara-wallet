@@ -26,6 +26,7 @@ export function registerCallCommand(program: Command): void {
     .option('--dry-run', 'encode the payload and exit without signing or submitting (no account required)')
     .option('--origin <address>', 'Vara.eth origin address for read-only Sails execution')
     .option('--via <via>', 'Vara.eth send path for function calls: eth (default) or injected')
+    .option('--wait <stage>', 'Vara.eth function completion stage: submitted or reply (default)', 'reply')
     .action(async (programId: string, method: string, options: {
       args?: string;
       argsFile?: string;
@@ -38,12 +39,13 @@ export function registerCallCommand(program: Command): void {
       dryRun?: boolean;
       origin?: string;
       via?: 'eth' | 'injected';
+      wait?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
         if (options.gasLimit || options.voucher) {
           throw new CliError(
-            '--chain vara-eth call supports --idl, --args, --args-file, --origin, --via, --dry-run, --estimate, --value, --units, and account options',
+            '--chain vara-eth call supports --idl, --args, --args-file, --origin, --via, --wait, --dry-run, --estimate, --value, --units, and account options',
             'UNSUPPORTED_CHAIN_OPTION',
           );
         }
