@@ -85,8 +85,11 @@ npm link
 | `VARA_DEX_FACTORY` | DEX factory program address | — |
 | `VARA_FAUCET_URL` | Faucet API URL | `https://faucet.gear-tech.io` |
 | `VARA_ETH_RPC` | Vara.eth validator RPC | network preset |
-| `ETHEREUM_RPC` | Ethereum JSON-RPC/WebSocket endpoint for Vara.eth | network preset |
+| `ETHEREUM_RPC` | Ethereum WebSocket endpoint for Vara.eth streams and custom fallback | network preset |
+| `ETHEREUM_HTTP_RPC` | Ethereum HTTP endpoint for one-shot Vara.eth requests | network preset |
 | `VARA_ETH_ROUTER` | Vara.eth Router address | network preset |
+
+Vara.eth starts its validator connection and Ethereum bootstrap concurrently. Built-in network presets use HTTP for one-shot Ethereum reads to avoid a WebSocket handshake; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
 
 ## Account Resolution
 

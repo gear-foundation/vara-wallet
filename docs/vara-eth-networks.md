@@ -5,11 +5,13 @@ How to point vara-wallet at each Vara.eth deployment. Select via
 
 ## Preset registry
 
-| Name | Ethereum RPC | Vara.eth RPC | Router | WVARA | Block time |
-|------|-------------|--------------|--------|-------|------------|
-| `mainnet` | `wss://mainnet-reth-rpc.gear-tech.io/ws` | `wss://validator-1-eth.vara.network` | [`0x9C13FE9242…aA74cb6`](https://etherscan.io/address/0x9C13FE9242dfe2ba2Cd446480A9308279aA74cb6) | [`0xB67010F224…E9d7E5aD`](https://etherscan.io/address/0xB67010F2246814e5c39593ac23A925D9e9d7E5aD) | 12 s |
-| `hoodi`   | `wss://hoodi-reth-rpc.gear-tech.io/ws`   | `wss://vara-eth-validator-1.gear-tech.io` | [`0xE549b0AfEd…A0b060`](https://hoodi.etherscan.io/address/0xE549b0AfEdA978271FF7E712232B9F7f39A0b060) | [`0xE1ab85A8B4…d7E5aD`](https://hoodi.etherscan.io/address/0xE1ab85A8B4d5d5B6af0bbD0203EB322DF33d0464) | 12 s |
-| `local`   | `ws://127.0.0.1:8545` (Anvil) | `ws://127.0.0.1:9944` | discovered at runtime | bound to Router | 1 s |
+| Name | Ethereum WS | Ethereum HTTP | Vara.eth RPC | Router | WVARA | Block time |
+|------|-------------|---------------|--------------|--------|-------|------------|
+| `mainnet` | `wss://mainnet-reth-rpc.gear-tech.io/ws` | `https://mainnet-reth-rpc.gear-tech.io` | `wss://validator-1-eth.vara.network` | [`0x9C13FE9242…aA74cb6`](https://etherscan.io/address/0x9C13FE9242dfe2ba2Cd446480A9308279aA74cb6) | [`0xB67010F224…E9d7E5aD`](https://etherscan.io/address/0xB67010F2246814e5c39593ac23A925D9e9d7E5aD) | 12 s |
+| `hoodi`   | `wss://hoodi-reth-rpc.gear-tech.io/ws` | `https://hoodi-reth-rpc.gear-tech.io` | `wss://vara-eth-validator-1.gear-tech.io` | [`0xE549b0AfEd…A0b060`](https://hoodi.etherscan.io/address/0xE549b0AfEdA978271FF7E712232B9F7f39A0b060) | [`0xE1ab85A8B4…d7E5aD`](https://hoodi.etherscan.io/address/0xE1ab85A8B4d5d5B6af0bbD0203EB322DF33d0464) | 12 s |
+| `local`   | `ws://127.0.0.1:8545` (Anvil) | `http://127.0.0.1:8545` | `ws://127.0.0.1:9944` | discovered at runtime | bound to Router | 1 s |
+
+Normal Vara.eth commands use the HTTP endpoint for Ethereum-side JSON-RPC while the validator connection opens in parallel. Event subscriptions use Ethereum WebSocket because they require a persistent stream. For custom endpoints, set `ETHEREUM_HTTP_RPC`; if it is absent, requests fall back to `ETHEREUM_RPC`.
 
 Mainnet and Hoodi each expose an additional beacon RPC for EIP-7594 blob
 lookups (used by `vara-eth:program deploy` to upload WASM bytecode):

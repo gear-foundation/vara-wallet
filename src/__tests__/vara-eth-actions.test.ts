@@ -23,6 +23,9 @@ const mockSetSigner = jest.fn();
 const mockGetAddress = jest.fn();
 const mockSendAndWaitForReceipt = jest.fn();
 const mockGetMirrorClient = jest.fn();
+const mockProgramEvents = jest.fn();
+const mockRouterEvents = jest.fn();
+const mockBlocks = jest.fn();
 
 const mockApi = {
   eth: {
@@ -58,6 +61,11 @@ const mockApi = {
     program: {
       calculateReplyForHandle: jest.fn(),
     },
+  },
+  stream: {
+    programEvents: mockProgramEvents,
+    routerEvents: mockRouterEvents,
+    blocks: mockBlocks,
   },
 };
 
@@ -101,6 +109,9 @@ import {
   outputVaraEthSailsCall,
   outputVaraEthProgramTopUp,
   outputVaraEthWvaraTransfer,
+  subscribeVaraEthBlocks,
+  subscribeVaraEthProgram,
+  subscribeVaraEthRouter,
   _isNullReturnTypeForTests,
 } from '../commands/vara-eth-actions';
 import { CliError } from '../utils/errors';
@@ -118,6 +129,9 @@ beforeEach(() => {
   mockDecimals.mockResolvedValue(18);
   mockSymbol.mockResolvedValue('WVARA');
   mockGetAddress.mockResolvedValue(ADDRESS);
+  mockProgramEvents.mockReturnValue(jest.fn());
+  mockRouterEvents.mockReturnValue(jest.fn());
+  mockBlocks.mockReturnValue(jest.fn());
   mockSendAndWaitForReceipt.mockResolvedValue({
     transactionHash: TX_HASH,
     blockNumber: 123n,
@@ -154,6 +168,20 @@ beforeEach(() => {
   mockGetMirrorClient.mockResolvedValue({
     executableBalanceTopUpWithPermit: mockExecutableBalanceTopUpWithPermit,
     sendReply: mockSendReply,
+  });
+});
+
+describe('Vara.eth subscription transport', () => {
+  it('keeps every event stream on the Ethereum WebSocket transport', async () => {
+    const finishImmediately = async (unsubscribe: () => void) => unsubscribe();
+
+    await subscribeVaraEthProgram(ADDRESS, { persist: false }, finishImmediately);
+    await subscribeVaraEthRouter({ persist: false }, finishImmediately);
+    await subscribeVaraEthBlocks({ persist: false }, finishImmediately);
+
+    expect(getEthexeApi).toHaveBeenNthCalledWith(1, { ethereumTransport: 'stream' });
+    expect(getEthexeApi).toHaveBeenNthCalledWith(2, { ethereumTransport: 'stream' });
+    expect(getEthexeApi).toHaveBeenNthCalledWith(3, { ethereumTransport: 'stream' });
   });
 });
 

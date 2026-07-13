@@ -99,6 +99,11 @@ program
         process.env.VARA_ETH_NETWORK_PRESET_NAME = opts.network;
         process.env.VARA_ETH_NETWORK_PRESET_VARA_ETH_RPC = preset.varaEthRpc;
         process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_RPC = preset.ethereumRpc;
+        if (preset.ethereumHttpRpc) {
+          process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_HTTP_RPC = preset.ethereumHttpRpc;
+        } else {
+          delete process.env.VARA_ETH_NETWORK_PRESET_ETHEREUM_HTTP_RPC;
+        }
         if (preset.routerAddress) {
           process.env.VARA_ETH_NETWORK_PRESET_ROUTER = preset.routerAddress;
         } else {

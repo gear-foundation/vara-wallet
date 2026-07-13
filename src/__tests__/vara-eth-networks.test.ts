@@ -10,6 +10,7 @@ describe('resolveVaraEthNetwork', () => {
     const cfg = resolveVaraEthNetwork('local');
     expect(cfg.routerAddress).toBeNull();
     expect(cfg.ethereumRpc).toBe('ws://127.0.0.1:8545');
+    expect(cfg.ethereumHttpRpc).toBe('http://127.0.0.1:8545');
     expect(cfg.varaEthRpc).toBe('ws://127.0.0.1:9944');
     expect(cfg.blockTimeMs).toBe(1_000);
   });
@@ -17,6 +18,7 @@ describe('resolveVaraEthNetwork', () => {
   it('returns the hoodi preset with the canonical router + WVARA addresses', () => {
     const cfg = resolveVaraEthNetwork('hoodi');
     expect(cfg.ethereumRpc).toContain('hoodi-reth-rpc.gear-tech.io');
+    expect(cfg.ethereumHttpRpc).toBe('https://hoodi-reth-rpc.gear-tech.io');
     expect(cfg.beaconRpc).toContain('hoodi-lighthouse-rpc.gear-tech.io');
     expect(cfg.varaEthRpc).toContain('vara-eth-validator-1.gear-tech.io');
     expect(cfg.blockTimeMs).toBe(12_000);
@@ -27,6 +29,7 @@ describe('resolveVaraEthNetwork', () => {
   it('returns the mainnet preset with the canonical router + WVARA addresses', () => {
     const cfg = resolveVaraEthNetwork('mainnet');
     expect(cfg.ethereumRpc).toContain('mainnet-reth-rpc.gear-tech.io');
+    expect(cfg.ethereumHttpRpc).toBe('https://mainnet-reth-rpc.gear-tech.io');
     expect(cfg.beaconRpc).toContain('mainnet-lighthouse-rpc.gear-tech.io');
     expect(cfg.varaEthRpc).toContain('validator-1-eth.vara.network');
     expect(cfg.blockTimeMs).toBe(12_000);

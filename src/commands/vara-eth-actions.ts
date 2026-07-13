@@ -602,7 +602,7 @@ export async function subscribeVaraEthProgram(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose(`subscribing to program events ${mirror}`);
   let seen = 0;
   const unsubscribe = api.stream.programEvents(
@@ -633,7 +633,7 @@ export async function subscribeVaraEthRouter(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose('subscribing to router events');
   let seen = 0;
   const unsubscribe = api.stream.routerEvents(
@@ -662,7 +662,7 @@ export async function subscribeVaraEthBlocks(
   if (persist) initEventStore();
   const network = persist ? resolveVaraEthEventNetwork() : null;
 
-  const api = await getEthexeApi();
+  const api = await getEthexeApi({ ethereumTransport: 'stream' });
   verbose('subscribing to blocks');
   let seen = 0;
   const unsubscribe = api.stream.blocks(
