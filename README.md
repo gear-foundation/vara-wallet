@@ -89,7 +89,7 @@ npm link
 | `ETHEREUM_HTTP_RPC` | Ethereum HTTP endpoint for one-shot Vara.eth requests | network preset |
 | `VARA_ETH_ROUTER` | Vara.eth Router address | network preset |
 
-Vara.eth starts its validator connection and Ethereum bootstrap concurrently. Built-in network presets use HTTP for one-shot Ethereum reads to avoid a WebSocket handshake; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
+Vara.eth starts its validator connection and Ethereum bootstrap concurrently. Built-in network presets use HTTP for one-shot Ethereum requests to avoid a WebSocket handshake; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
 
 ## Account Resolution
 

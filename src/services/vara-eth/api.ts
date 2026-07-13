@@ -62,7 +62,7 @@ function asAddress(value: unknown): Address | undefined {
 
 function withEthexeConnectionTimeout<T>(
   promise: Promise<T>,
-  endpoint: string,
+  endpoint: string | (() => string),
   cleanupAfterTimeout?: () => void,
 ): Promise<T> {
   let didTimeout = false;
@@ -72,8 +72,9 @@ function withEthexeConnectionTimeout<T>(
       () => {
         didTimeout = true;
         cleanupAfterTimeout?.();
+        const timedOutEndpoint = typeof endpoint === 'function' ? endpoint() : endpoint;
         reject(new CliError(
-          `Connection to ${endpoint} timed out after 10s. Check your network or VARA_ETH_RPC setting.`,
+          `Connection to ${timedOutEndpoint} timed out after 10s. Check your configured RPC endpoints.`,
           'CONNECTION_TIMEOUT',
         ));
       },
@@ -87,6 +88,20 @@ function withEthexeConnectionTimeout<T>(
     }),
     timeoutPromise,
   ]);
+}
+
+function errorMentionsEndpoint(error: unknown, endpoint: string): boolean {
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === 'string') return current.includes(endpoint);
+    if (typeof current !== 'object' || seen.has(current)) return false;
+    seen.add(current);
+    const wrapped = current as { message?: unknown; cause?: unknown };
+    if (typeof wrapped.message === 'string' && wrapped.message.includes(endpoint)) return true;
+    current = wrapped.cause;
+  }
+  return false;
 }
 
 function findBroadcastArtifacts(root = process.cwd()): string[] {
@@ -194,7 +209,8 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
 
   const varaEthRpc = options.varaEthRpc ?? cliPresetVaraEthRpc ?? process.env.VARA_ETH_RPC ?? config.varaEthRpc ?? configPreset?.varaEthRpc;
   const ethereumRpc = options.ethereumRpc ?? cliPresetEthereumRpc ?? process.env.ETHEREUM_RPC ?? config.ethereumRpc ?? configPreset?.ethereumRpc;
-  let ethereumHttpRpc = options.ethereumHttpRpc ?? cliPresetEthereumHttpRpc ?? process.env.ETHEREUM_HTTP_RPC;
+  const matchingCliPresetHttpRpc = ethereumRpc === cliPresetEthereumRpc ? cliPresetEthereumHttpRpc : undefined;
+  let ethereumHttpRpc = options.ethereumHttpRpc ?? matchingCliPresetHttpRpc ?? process.env.ETHEREUM_HTTP_RPC;
   if (!ethereumHttpRpc && !hasCliPreset && !options.ethereumRpc && ethereumRpc === configPreset?.ethereumRpc) {
     ethereumHttpRpc = configPreset?.ethereumHttpRpc;
   }
@@ -232,7 +248,10 @@ export function resolveEthexeConfig(options: EthexeApiOptions = {}): {
   return { varaEthRpc, ethereumRpc, ethereumHttpRpc, routerAddress };
 }
 
-function createEthereumPublicClient(endpoint: string): PublicClient {
+function createEthereumPublicClient(
+  endpoint: string,
+  configKey: 'ethereumRpc' | 'ethereumHttpRpc',
+): PublicClient {
   if (/^https?:\/\//i.test(endpoint)) {
     return createPublicClient({ transport: http(endpoint) }) as PublicClient;
   }
@@ -242,7 +261,7 @@ function createEthereumPublicClient(endpoint: string): PublicClient {
   throw new CliError(
     `Unsupported Ethereum RPC URL "${endpoint}". Expected http(s):// or ws(s)://.`,
     'INVALID_CONFIG_VALUE',
-    { key: 'ethereumRpc', value: endpoint },
+    { key: configKey, value: endpoint },
   );
 }
 
@@ -255,39 +274,44 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
   if (cached) return cached.api;
 
   const cfg = resolveEthexeConfig(options);
-  const ethereumEndpoint = options.ethereumTransport === 'stream'
-    ? cfg.ethereumRpc
-    : (cfg.ethereumHttpRpc ?? cfg.ethereumRpc);
+  const usesEthereumHttpRpc = options.ethereumTransport !== 'stream' && cfg.ethereumHttpRpc !== undefined;
+  const ethereumEndpoint = usesEthereumHttpRpc ? cfg.ethereumHttpRpc! : cfg.ethereumRpc;
+  const ethereumConfigKey = usesEthereumHttpRpc ? 'ethereumHttpRpc' : 'ethereumRpc';
   const ethereumTransport = /^https?:\/\//i.test(ethereumEndpoint) ? 'http' : 'websocket';
   markStage('vara_eth_config', { ethereumTransport });
 
   const ws = new WsVaraEthProvider(cfg.varaEthRpc);
-  let disconnected = false;
   const disconnectWs = () => {
-    if (disconnected) return;
-    disconnected = true;
     try {
-      ws.disconnect?.();
+      const disconnect = ws.disconnect?.();
+      void disconnect?.catch(() => {});
     } catch {
       // ignore failed cleanup after connect/bootstrap failure
     }
   };
+  let validatorConnected = false;
+  const timeoutEndpoint = () => validatorConnected ? ethereumEndpoint : cfg.varaEthRpc;
   let api: VaraEthApi;
   try {
-    const publicClient = createEthereumPublicClient(ethereumEndpoint);
+    const publicClient = createEthereumPublicClient(ethereumEndpoint, ethereumConfigKey);
     const [, initializedApi] = await withEthexeConnectionTimeout(
       Promise.all([
-        ws.connect(),
+        ws.connect().then(() => {
+          validatorConnected = true;
+        }),
         createVaraEthApi(ws, publicClient, cfg.routerAddress),
       ]),
-      cfg.varaEthRpc,
+      timeoutEndpoint,
       disconnectWs,
     );
     api = initializedApi;
     markStage('vara_eth_connect', { ethereumTransport });
   } catch (rawErr) {
     if (!(rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT')) disconnectWs();
-    throw classifyTransportError(rawErr, { endpoint: cfg.varaEthRpc }) ?? rawErr;
+    const failedEndpoint = rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT'
+      ? timeoutEndpoint()
+      : (errorMentionsEndpoint(rawErr, ethereumEndpoint) ? ethereumEndpoint : cfg.varaEthRpc);
+    throw classifyTransportError(rawErr, { endpoint: failedEndpoint }) ?? rawErr;
   }
 
   cached = { api, ws };

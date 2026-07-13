@@ -506,6 +506,8 @@ vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args 
 
 Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. They appear in unqualified `wallet list` with `chain: "vara-eth"`, but native commands must not treat those files as Substrate wallets. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
 
+Vara.eth opens the validator connection and Ethereum bootstrap concurrently. Built-in presets use an Ethereum HTTP endpoint for one-shot requests, while `vara-eth:subscribe` keeps Ethereum WebSocket transport for event streams. Custom deployments can set `ETHEREUM_HTTP_RPC`; without it, request-mode calls fall back to `ETHEREUM_RPC`.
+
 Direct config setters are preset-aware: `config set varaNetwork <mainnet|testnet|local>` also updates `wsEndpoint`, and `config set varaEthNetwork <mainnet|hoodi|local>` also updates the Vara.eth RPC, Ethereum RPC, and Router fields. For Vara.eth Sails read calls, zero-address origin fallback is only for no selected account; a missing or corrupt selected wallet must fail instead of silently querying as zero address.
 
 For endpoints and canonical Router/WVARA addresses, see `docs/vara-eth-networks.md`. For the manual Sails deploy/discover/call E2E, see `docs/sails-real-program-e2e.md`.

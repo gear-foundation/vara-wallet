@@ -367,6 +367,25 @@ describe('classifyTransportError', () => {
     expect(cli!.meta?.reason).toBe('dns_failure');
   });
 
+  it('finds transport codes nested multiple causes below a viem-style error', () => {
+    const socketError = Object.assign(new Error('getaddrinfo ENOTFOUND eth.example'), { code: 'ENOTFOUND' });
+    const fetchError = Object.assign(new Error('fetch failed'), { cause: socketError });
+    const viemError = Object.assign(new Error('HTTP request failed. URL: https://eth.example/'), {
+      cause: fetchError,
+    });
+
+    const cli = classifyTransportError(viemError, { endpoint: 'https://eth.example' });
+
+    expect(cli).toMatchObject({
+      code: 'TRANSPORT_ERROR',
+      meta: {
+        reason: 'dns_failure',
+        endpoint: 'https://eth.example',
+        host: 'eth.example',
+      },
+    });
+  });
+
   it('returns null for non-transport Error instances (e.g. PROGRAM_ERROR-style panics)', () => {
     expect(classifyTransportError(new Error('something else broke'))).toBeNull();
     expect(classifyTransportError(new Error('ENOENT: no such file'))).toBeNull();

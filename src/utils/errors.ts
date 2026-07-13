@@ -448,6 +448,36 @@ export interface TransportContext {
   cause?: { code?: string; message?: string };
 }
 
+function extractTransportSignals(err: unknown): { code?: string; messages: string[] } {
+  const seen = new Set<object>();
+  const messages: string[] = [];
+  let code: string | undefined;
+
+  const visit = (value: unknown, depth: number): void => {
+    if (depth > 8 || value === null || value === undefined) return;
+    if (typeof value === 'string') {
+      messages.push(value);
+      return;
+    }
+    if (typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+
+    const nested = value as {
+      code?: unknown;
+      message?: unknown;
+      error?: unknown;
+      cause?: unknown;
+    };
+    if (!code && typeof nested.code === 'string') code = nested.code;
+    if (typeof nested.message === 'string') messages.push(nested.message);
+    visit(nested.error, depth + 1);
+    visit(nested.cause, depth + 1);
+  };
+
+  visit(err, 0);
+  return { code, messages };
+}
+
 /**
  * Classify a transport-layer failure (DNS, WS handshake, RPC disconnect,
  * TLS, timeout) into a `TRANSPORT_ERROR` CliError with a structured
@@ -477,22 +507,9 @@ export function classifyTransportError(err: unknown, ctx: TransportContext = {})
   // only the CONNECTION_TIMEOUT sentinel above is migrated.
   if (err instanceof CliError) return null;
 
-  // 1+2. Direct `.code` or wrapped `.error.code` / `.cause.code`.
-  //   - Node net errors throw directly with `.code` (ENOTFOUND, ECONNREFUSED, …).
-  //   - The `ws` library wraps as `{ error: NetError, message, type, target }`.
-  //   - Node's `fetch` wraps the underlying network error as `err.cause`.
-  const anyErr = err as {
-    code?: string;
-    message?: string;
-    error?: { code?: string; message?: string };
-    cause?: { code?: string; message?: string };
-  } | null;
-  const directCode = anyErr?.code ?? anyErr?.error?.code ?? anyErr?.cause?.code;
-  const directMessage = anyErr?.message ?? anyErr?.error?.message ?? anyErr?.cause?.message;
-
-  // 3. Message string. Available for direct Error instances, listener-captured
-  //    causes, and even empty {} (which yields '').
-  const msg = directMessage ?? (typeof err === 'string' ? err : '');
+  // Walk nested `.error` / `.cause` wrappers. Node fetch and viem can put the
+  // actionable socket code two or more causes below the top-level error.
+  const direct = extractTransportSignals(err);
 
   // 4. Listener fallback. Used when the rejection is empty (e.g., browser-style
   //    `Event` from WsProvider) but the on('error') listener captured the
@@ -500,8 +517,13 @@ export function classifyTransportError(err: unknown, ctx: TransportContext = {})
   const ctxCode = ctx.cause?.code;
   const ctxMsg = ctx.cause?.message;
 
-  const code = directCode ?? ctxCode;
-  const combinedMsg = `${msg} ${ctxMsg ?? ''}`.trim();
+  const code = direct.code ?? ctxCode;
+  const combinedMsg = `${direct.messages.join(' ')} ${ctxMsg ?? ''}`.trim();
+  const firstMessage = direct.messages[0];
+  const rootMessage = direct.messages.at(-1);
+  const causeMessage = [firstMessage, rootMessage !== firstMessage ? rootMessage : undefined, ctxMsg]
+    .filter((message): message is string => Boolean(message))
+    .join('; cause: ');
 
   const reason = matchReason(code, combinedMsg);
   if (!reason) {
@@ -511,11 +533,11 @@ export function classifyTransportError(err: unknown, ctx: TransportContext = {})
     // as a bare `{ method: '...' }` object — return null and let the
     // legacy UNKNOWN_ERROR / PROGRAM_ERROR paths take over.
     if (ctx.endpoint || ctx.cause) {
-      return buildTransportError('unknown', ctx, code, combinedMsg);
+      return buildTransportError('unknown', ctx, code, causeMessage);
     }
     return null;
   }
-  return buildTransportError(reason, ctx, code, combinedMsg);
+  return buildTransportError(reason, ctx, code, causeMessage);
 }
 
 function matchReason(code: string | undefined, message: string): TransportReason | null {

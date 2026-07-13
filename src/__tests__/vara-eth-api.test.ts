@@ -178,6 +178,26 @@ describe('resolveEthexeConfig', () => {
     expect(cfg.ethereumHttpRpc).toBeUndefined();
   });
 
+  it('keeps an explicit Ethereum WebSocket ahead of an options network preset HTTP endpoint', async () => {
+    const apiStub = require('@vara-eth/api') as {
+      __getLastPublicClientTransportForTests: () => string | undefined;
+    };
+
+    const cfg = resolveEthexeConfig({
+      networkPreset: LOCAL_PRESET,
+      ethereumRpc: 'wss://custom-eth.example',
+      routerAddress: EXPLICIT_ROUTER,
+    });
+    expect(cfg.ethereumHttpRpc).toBeUndefined();
+
+    await getEthexeApi({
+      networkPreset: LOCAL_PRESET,
+      ethereumRpc: 'wss://custom-eth.example',
+      routerAddress: EXPLICIT_ROUTER,
+    });
+    expect(apiStub.__getLastPublicClientTransportForTests()).toBe('webSocket');
+  });
+
   it('does not fall back to a persisted router when the command-line preset needs local discovery', () => {
     writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify({
       varaEthNetwork: 'mainnet',
@@ -263,6 +283,20 @@ describe('getEthexeApi', () => {
     expect(apiStub.__getLastPublicClientTransportForTests()).toBe('webSocket');
   });
 
+  it('identifies a malformed HTTP override by its actual config key', async () => {
+    await expect(getEthexeApi({
+      networkPreset: LOCAL_PRESET,
+      ethereumHttpRpc: 'ftp://invalid.example',
+      routerAddress: EXPLICIT_ROUTER,
+    })).rejects.toMatchObject({
+      code: 'INVALID_CONFIG_VALUE',
+      meta: {
+        key: 'ethereumHttpRpc',
+        value: 'ftp://invalid.example',
+      },
+    });
+  });
+
   it('classifies Vara.eth provider connect timeouts and disconnects the provider', async () => {
     jest.useFakeTimers();
     const apiStub = require('@vara-eth/api') as {
@@ -304,6 +338,54 @@ describe('getEthexeApi', () => {
     expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
   });
 
+  it('attributes nested Ethereum HTTP failures to the HTTP endpoint', async () => {
+    const apiStub = require('@vara-eth/api') as {
+      __setCreateApiImplementationForTests: (fn: () => Promise<unknown>) => void;
+    };
+    const socketError = Object.assign(new Error('getaddrinfo ENOTFOUND custom-eth.example'), {
+      code: 'ENOTFOUND',
+    });
+    const fetchError = Object.assign(new Error('fetch failed'), { cause: socketError });
+    apiStub.__setCreateApiImplementationForTests(async () => {
+      throw Object.assign(
+        new Error(`HTTP request failed. URL: ${LOCAL_PRESET.ethereumHttpRpc}/`),
+        { cause: fetchError },
+      );
+    });
+
+    await expect(getEthexeApi({
+      networkPreset: LOCAL_PRESET,
+      routerAddress: EXPLICIT_ROUTER,
+    })).rejects.toMatchObject({
+      code: 'TRANSPORT_ERROR',
+      meta: {
+        reason: 'dns_failure',
+        endpoint: LOCAL_PRESET.ethereumHttpRpc,
+        host: '127.0.0.1',
+      },
+    });
+  });
+
+  it('attributes a bootstrap timeout to HTTP after the validator is connected', async () => {
+    jest.useFakeTimers();
+    const apiStub = require('@vara-eth/api') as {
+      __setCreateApiImplementationForTests: (fn: () => Promise<unknown>) => void;
+    };
+    apiStub.__setCreateApiImplementationForTests(() => new Promise(() => {}));
+
+    const promise = getEthexeApi({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    await Promise.resolve();
+    jest.advanceTimersByTime(10_000);
+
+    await expect(promise).rejects.toMatchObject({
+      code: 'TRANSPORT_ERROR',
+      meta: {
+        reason: 'timeout',
+        endpoint: LOCAL_PRESET.ethereumHttpRpc,
+      },
+    });
+  });
+
   it('disconnects late-settling provider connections after a timeout', async () => {
     jest.useFakeTimers();
     const apiStub = require('@vara-eth/api') as {
@@ -328,10 +410,9 @@ describe('getEthexeApi', () => {
     expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
 
     resolveConnect();
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
 
-    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
+    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(2);
   });
 
   it('consumes a late API-bootstrap rejection after the shared timeout', async () => {
@@ -352,9 +433,8 @@ describe('getEthexeApi', () => {
     await expect(promise).rejects.toMatchObject({ code: 'TRANSPORT_ERROR' });
 
     rejectApi(new Error('late bootstrap failure'));
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
 
-    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(1);
+    expect(apiStub.__getWsDisconnectCallsForTests()).toBe(2);
   });
 });
