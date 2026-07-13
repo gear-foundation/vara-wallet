@@ -230,7 +230,8 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
         payload,
         value: 0n,
       });
-      txHash = asHex(await injectedTx.send(), 'injected transaction hash');
+      await injectedTx.send();
+      txHash = injectedTx.txHash;
       messageId = injectedTx.messageId;
     }
 
@@ -621,7 +622,8 @@ export async function outputVaraEthSailsCall(
         payload: encodedPayload,
         value: 0n,
       });
-      txHash = asHex(await injectedTx.send(), 'injected transaction hash');
+      await injectedTx.send();
+      txHash = injectedTx.txHash;
       messageId = injectedTx.messageId;
     }
 
@@ -901,7 +903,7 @@ async function outputDeploymentWithOptionalInit(params: {
   }
 }
 
-function parseSailsMethod(method: string): { serviceName: string; methodName: string } {
+export function parseSailsMethod(method: string): { serviceName: string; methodName: string } {
   const parts = method.split('/');
   if (parts.length !== 2) {
     throw new CliError(
@@ -912,7 +914,7 @@ function parseSailsMethod(method: string): { serviceName: string; methodName: st
   return { serviceName: parts[0], methodName: parts[1] };
 }
 
-function resolveSailsMethod(
+export function resolveSailsMethod(
   sails: LoadedSails,
   serviceName: string,
   methodName: string,
@@ -943,7 +945,7 @@ function resolveSailsMethod(
   );
 }
 
-type SailsMethodLike = {
+export type SailsMethodLike = {
   args: Array<{ name: string; typeDef: unknown }>;
   returnTypeDef: unknown;
   encodePayload: (...args: unknown[]) => Hex;
@@ -959,7 +961,7 @@ function resolveCallArgs(opts: VaraEthSailsCallOptions, arity: number, methodNam
   return validateTopLevelArgs(parsed, arity, { kind: 'Method', name: methodName });
 }
 
-function decodeVaraEthSailsReply(
+export function decodeVaraEthSailsReply(
   sails: LoadedSails,
   method: SailsMethodLike,
   serviceName: string,
