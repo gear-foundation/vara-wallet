@@ -218,7 +218,7 @@ vara-wallet --chain vara-eth --network hoodi --account agent-eth \
 EOF
 ```
 
-The first line is `{ "type": "ready", ... }`. Query results include the decoded reply; function results return `{ "status": "submitted", "txHash", "messageId" }` after the injected transaction is accepted. Functions do not wait for program execution or a reply. Requests require `program` and `method`; `args` must be a JSON array and `idl` is optional.
+The first line is a ready record such as `{ "type": "ready", "chain": "vara-eth", "origin": "0x..." }`. Query results include the decoded reply; function results return `{ "status": "submitted", "txHash": "0x...", "messageId": "0x..." }` after the injected transaction is accepted. Functions do not wait for program execution or a reply. Requests require `program` and `method`; `args` must be a JSON array and `idl` is optional.
 
 ### `node`
 
