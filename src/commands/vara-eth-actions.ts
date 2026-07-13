@@ -201,7 +201,7 @@ export async function outputVaraEthMessageSend(mirrorArg: string, opts: VaraEthS
   const timeoutMs = parseOptionalPositiveInteger(opts.timeoutMs, '--timeout-ms', 'INVALID_TIMEOUT');
 
   const validateSignature = opts.validateSignature !== false;
-  const persist = via === 'injected';
+  const persist = via === 'injected' && wait === 'reply';
   if (persist) initPromiseStore();
   const ethereumContext = getEthexeEthereumContext();
   const apiPromise = via === 'injected' || wait === 'reply' ? getEthexeApi() : null;
@@ -509,8 +509,7 @@ export async function outputVaraEthSailsCall(
   const via = resolveVaraEthSendPath(opts.via);
   const wait = resolveVaraEthWaitMode(opts.wait, ['submitted', 'reply'], 'reply');
   const { serviceName, methodName } = parseSailsMethod(methodArg);
-  const ethereumOnlySubmit = wait === 'submitted' && via === 'eth' && opts.idl !== undefined;
-  const api = ethereumOnlySubmit ? undefined : await getEthexeApi();
+  let api = opts.idl === undefined ? await getEthexeApi() : undefined;
   const valueInfo = resolveVaraEthValue(opts.value, opts.units);
   const loaded = await loadVaraEthSails(api, programAddress, {
     idl: opts.idl,
@@ -521,6 +520,15 @@ export async function outputVaraEthSailsCall(
   args = coerceArgsAuto(args, resolved.method.args || [], loaded.sails, serviceName);
   const encodedPayload = resolved.method.encodePayload(...args) as Hex;
   const origin = resolveVaraEthOrigin(opts);
+  const ethereumOnlySubmit = wait === 'submitted'
+    && via === 'eth'
+    && resolved.kind === 'function'
+    && !opts.dryRun
+    && !opts.estimate;
+  const needsValidatorApi = resolved.kind === 'query'
+    || opts.estimate === true
+    || (!opts.dryRun && !ethereumOnlySubmit);
+  if (!api && needsValidatorApi) api = await getEthexeApi();
 
   if (opts.dryRun) {
     const feeEstimate = opts.estimate && resolved.kind === 'function'

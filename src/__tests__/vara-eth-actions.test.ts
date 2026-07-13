@@ -29,6 +29,9 @@ const mockGetMirrorClient = jest.fn();
 const mockProgramEvents = jest.fn();
 const mockRouterEvents = jest.fn();
 const mockBlocks = jest.fn();
+const mockCalculateReplyForHandle = jest.fn();
+const mockInitPromiseStore = jest.fn();
+const mockInsertPending = jest.fn();
 
 const mockApi = {
   eth: {
@@ -63,7 +66,7 @@ const mockApi = {
   },
   call: {
     program: {
-      calculateReplyForHandle: jest.fn(),
+      calculateReplyForHandle: mockCalculateReplyForHandle,
     },
   },
   stream: {
@@ -87,6 +90,14 @@ jest.mock('../services/vara-eth/api', () => ({
 jest.mock('../services/vara-eth/account', () => ({
   resolveEthexeAccountAddress: jest.fn(),
   resolveEthexeSigner: jest.fn(),
+}));
+
+jest.mock('../services/vara-eth/promises', () => ({
+  getById: jest.fn(),
+  initPromiseStore: (...args: unknown[]) => mockInitPromiseStore(...args),
+  insertPending: (...args: unknown[]) => mockInsertPending(...args),
+  markFailed: jest.fn(),
+  markResolved: jest.fn(),
 }));
 
 const mockOutput = jest.fn();
@@ -148,6 +159,11 @@ beforeEach(() => {
   mockProgramEvents.mockReturnValue(jest.fn());
   mockRouterEvents.mockReturnValue(jest.fn());
   mockBlocks.mockReturnValue(jest.fn());
+  mockCalculateReplyForHandle.mockResolvedValue({
+    payload: '0x00',
+    value: 0n,
+    code: { isSuccess: true, isError: false, toBytes: () => new Uint8Array([0]) },
+  });
   mockSendAndWaitForReceipt.mockResolvedValue({
     transactionHash: TX_HASH,
     blockNumber: 123n,
@@ -383,6 +399,7 @@ describe('Vara.eth shared actions', () => {
       messageId: MESSAGE_ID,
       reply: null,
     }));
+    expect(mockInsertPending).not.toHaveBeenCalled();
   });
 
   it('rejects invalid wait modes before opening either RPC context', async () => {
@@ -484,6 +501,37 @@ describe('Vara.eth shared actions', () => {
       },
       willSubmit: false,
     }));
+  });
+
+  it('keeps the validator API for submitted-wait Sails queries with a local IDL', async () => {
+    mockCalculateReplyForHandle.mockRejectedValueOnce(new Error('query reached validator API'));
+
+    await expect(outputVaraEthSailsCall(TO, 'Demo/GetMaybe', {
+      idl: FIXTURE_IDL,
+      args: '[]',
+      value: '0',
+      via: 'eth',
+      wait: 'submitted',
+    })).rejects.toThrow('query reached validator API');
+    expect(getEthexeApi).toHaveBeenCalled();
+    expect(mockCalculateReplyForHandle).toHaveBeenCalled();
+  });
+
+  it('keeps the validator API for submitted-wait Sails fee estimates', async () => {
+    const hash = '0x' + '55'.repeat(32);
+
+    await outputVaraEthSailsCall(TO, 'Demo/Echo', {
+      idl: FIXTURE_IDL,
+      args: `["0xaabb","${hash}"]`,
+      value: '0',
+      via: 'eth',
+      wait: 'submitted',
+      dryRun: true,
+      estimate: true,
+    });
+
+    expect(getEthexeApi).toHaveBeenCalled();
+    expect(mockEstimateFee).toHaveBeenCalled();
   });
 
   it('decodes empty replies for Vara.eth Sails v1 null-return functions', async () => {

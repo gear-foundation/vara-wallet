@@ -89,7 +89,7 @@ npm link
 | `ETHEREUM_HTTP_RPC` | Ethereum HTTP endpoint for one-shot Vara.eth requests | network preset |
 | `VARA_ETH_ROUTER` | Vara.eth Router address | network preset |
 
-Vara.eth starts its validator connection and Ethereum bootstrap concurrently when a command needs both RPCs. Direct low-level message submissions, WVARA writes, and direct Sails submissions with an explicit `--idl` use an Ethereum-only request context and do not open the validator connection. Built-in network presets use HTTP for one-shot Ethereum requests; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
+Vara.eth starts its validator connection and Ethereum bootstrap concurrently when a command needs both RPCs. Direct low-level message submissions, WVARA writes, and direct Sails function submissions with both `--via eth --wait submitted` and an explicit `--idl` use an Ethereum-only request context and do not open the validator connection. Built-in network presets use HTTP for one-shot Ethereum requests; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
 
 ## Account Resolution
 

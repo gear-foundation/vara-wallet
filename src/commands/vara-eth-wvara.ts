@@ -41,14 +41,17 @@ function resolveWaitMode(raw: string | undefined): 'submitted' | 'receipt' {
 }
 
 async function sendWvaraTransaction(
-  tx: { send(): Promise<`0x${string}`>; sendAndWaitForReceipt(): Promise<{ transactionHash: `0x${string}` }> },
+  tx: {
+    send(): Promise<`0x${string}`>;
+    sendAndWaitForReceipt(): Promise<{ transactionHash: `0x${string}`; status: 'success' | 'reverted' }>;
+  },
   wait: 'submitted' | 'receipt',
-): Promise<{ txHash: `0x${string}`; status: 'submitted' | 'confirmed' }> {
+): Promise<{ txHash: `0x${string}`; status: 'submitted' | 'success' | 'reverted' }> {
   if (wait === 'submitted') {
     return { txHash: await tx.send(), status: 'submitted' };
   }
   const receipt = await tx.sendAndWaitForReceipt();
-  return { txHash: receipt.transactionHash, status: 'confirmed' };
+  return { txHash: receipt.transactionHash, status: receipt.status };
 }
 
 export function registerVaraEthWvaraCommand(program: Command): void {

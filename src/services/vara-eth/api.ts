@@ -312,14 +312,16 @@ export function getEthexeEthereumClient(options: EthexeApiOptions = {}): Promise
 
   const context = getEthexeEthereumContext(options);
   const client = new EthereumClient(context.publicClient, context.routerAddress);
-  cachedEthereumClient = withEthexeConnectionTimeout(
+  let initialization: Promise<EthereumClient>;
+  initialization = withEthexeConnectionTimeout(
     client.waitForInitialization().then(() => client),
     context.endpoint,
   ).catch((rawError) => {
-    cachedEthereumClient = null;
+    if (cachedEthereumClient === initialization) cachedEthereumClient = null;
     throw classifyTransportError(rawError, { endpoint: context.endpoint }) ?? rawError;
   });
-  return cachedEthereumClient;
+  cachedEthereumClient = initialization;
+  return initialization;
 }
 
 /**

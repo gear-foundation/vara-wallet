@@ -46,6 +46,7 @@ export class NoSailsIdlError extends VaraEthError {
 export class LocalSigner {}
 let ethereumClientConstructCalls = 0;
 let ethereumClientInitCalls = 0;
+let ethereumClientInitImplementation: () => Promise<void> = async () => {};
 export class EthereumClient {
   publicClient: unknown;
   routerAddress: unknown;
@@ -54,7 +55,10 @@ export class EthereumClient {
     this.publicClient = publicClient;
     this.routerAddress = routerAddress;
   }
-  async waitForInitialization() { ethereumClientInitCalls += 1; }
+  async waitForInitialization() {
+    ethereumClientInitCalls += 1;
+    await ethereumClientInitImplementation();
+  }
 }
 let wsConnectImplementation: () => Promise<void> = async () => {};
 let createApiImplementation: (...args: unknown[]) => Promise<unknown> = async () => ({});
@@ -69,6 +73,10 @@ export function __setWsConnectImplementationForTests(fn: () => Promise<void>): v
 
 export function __setCreateApiImplementationForTests(fn: (...args: unknown[]) => Promise<unknown>): void {
   createApiImplementation = fn;
+}
+
+export function __setEthereumClientInitImplementationForTests(fn: () => Promise<void>): void {
+  ethereumClientInitImplementation = fn;
 }
 
 export function __getWsConnectCallsForTests(): number {
@@ -104,6 +112,7 @@ export function __resetVaraEthApiStubForTests(): void {
   createApiCalls = 0;
   ethereumClientConstructCalls = 0;
   ethereumClientInitCalls = 0;
+  ethereumClientInitImplementation = async () => {};
   lastCreateApiArgs = [];
 }
 

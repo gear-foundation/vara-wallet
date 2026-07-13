@@ -255,6 +255,28 @@ describe('getEthexeApi', () => {
     expect(apiStub.__getCreateApiCallsForTests()).toBe(0);
   });
 
+  it('does not let a stale Ethereum-client failure clear a newer initialization', async () => {
+    const apiStub = require('@vara-eth/api') as {
+      __setEthereumClientInitImplementationForTests: (fn: () => Promise<void>) => void;
+    };
+    let rejectFirst!: (error: Error) => void;
+    apiStub.__setEthereumClientInitImplementationForTests(() => new Promise<void>((_resolve, reject) => {
+      rejectFirst = reject;
+    }));
+
+    const first = getEthexeEthereumClient({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    await Promise.resolve();
+    disconnectEthexeApi();
+    apiStub.__setEthereumClientInitImplementationForTests(async () => {});
+    const second = getEthexeEthereumClient({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    await expect(second).resolves.toBeDefined();
+
+    rejectFirst(new Error('first initialization failed'));
+    await expect(first).rejects.toMatchObject({ code: 'TRANSPORT_ERROR' });
+
+    expect(getEthexeEthereumClient({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER })).toBe(second);
+  });
+
   it('starts validator connection and API bootstrap concurrently, then caches the result', async () => {
     const apiStub = require('@vara-eth/api') as {
       __setWsConnectImplementationForTests: (fn: () => Promise<void>) => void;

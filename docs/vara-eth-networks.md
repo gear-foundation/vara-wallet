@@ -50,7 +50,7 @@ Use `--wait submitted` for automation that only needs proof the RPC accepted a t
 - WVARA transfers and message replies return their Ethereum `txHash` without waiting for a block receipt.
 - A raw-unit WVARA submit does not perform a decimals read; `amountRaw` is authoritative and the immediate output reports `amount: null` and `decimals: null`.
 
-The compatibility defaults remain completion-oriented: message sends and Sails functions use `--wait reply`; WVARA transfers and message replies use `--wait receipt`. `--timeout-ms` applies to the reply-wait path, not submit-only RPC acceptance. A submit-only injected row remains pending locally; `--resume` cannot reattach to an in-flight validator promise until upstream subscription-by-hash support exists.
+The compatibility defaults remain completion-oriented: message sends and Sails functions use `--wait reply`; WVARA transfers and message replies use `--wait receipt`. `--timeout-ms` applies to the reply-wait path, not submit-only RPC acceptance. Submit-only injected sends are not stored as resumable pending rows; `--resume` only reports terminal outcomes captured by the reply-wait path until upstream subscription-by-hash support exists.
 
 A direct Sails submit can skip validator bootstrap only when `--idl <path>` is supplied. Without a local IDL, the wallet must query Vara.eth for the program code ID and embedded/cached interface before encoding the call.
 
