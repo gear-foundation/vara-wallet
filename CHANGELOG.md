@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.20.4] - 2026-07-13
+
 ### Changed
 
 - Reduce Vara.eth command startup latency by overlapping validator connection with API bootstrap and using preset Ethereum HTTP endpoints for one-shot requests. Event subscriptions continue to use WebSocket, and custom configurations without `ETHEREUM_HTTP_RPC` retain their existing WebSocket fallback.
