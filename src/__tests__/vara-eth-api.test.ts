@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { disconnectEthexeApi, getEthexeApi, resolveEthexeConfig } from '../services/vara-eth/api';
+import {
+  disconnectEthexeApi,
+  getEthexeApi,
+  getEthexeEthereumClient,
+  getEthexeEthereumContext,
+  resolveEthexeConfig,
+} from '../services/vara-eth/api';
 
 const LOCAL_PRESET = {
   varaEthRpc: 'ws://127.0.0.1:9944',
@@ -217,6 +223,38 @@ describe('resolveEthexeConfig', () => {
 });
 
 describe('getEthexeApi', () => {
+  it('creates an Ethereum request context without opening the validator API', () => {
+    const apiStub = require('@vara-eth/api') as {
+      __getWsConnectCallsForTests: () => number;
+      __getCreateApiCallsForTests: () => number;
+    };
+
+    const context = getEthexeEthereumContext({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+
+    expect(context.transport).toBe('http');
+    expect(context.endpoint).toBe(LOCAL_PRESET.ethereumHttpRpc);
+    expect(apiStub.__getWsConnectCallsForTests()).toBe(0);
+    expect(apiStub.__getCreateApiCallsForTests()).toBe(0);
+  });
+
+  it('initializes and caches an Ethereum-only client without opening the validator API', async () => {
+    const apiStub = require('@vara-eth/api') as {
+      __getWsConnectCallsForTests: () => number;
+      __getCreateApiCallsForTests: () => number;
+      __getEthereumClientConstructCallsForTests: () => number;
+      __getEthereumClientInitCallsForTests: () => number;
+    };
+
+    const first = await getEthexeEthereumClient({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+    const second = await getEthexeEthereumClient({ networkPreset: LOCAL_PRESET, routerAddress: EXPLICIT_ROUTER });
+
+    expect(second).toBe(first);
+    expect(apiStub.__getEthereumClientConstructCallsForTests()).toBe(1);
+    expect(apiStub.__getEthereumClientInitCallsForTests()).toBe(1);
+    expect(apiStub.__getWsConnectCallsForTests()).toBe(0);
+    expect(apiStub.__getCreateApiCallsForTests()).toBe(0);
+  });
+
   it('starts validator connection and API bootstrap concurrently, then caches the result', async () => {
     const apiStub = require('@vara-eth/api') as {
       __setWsConnectImplementationForTests: (fn: () => Promise<void>) => void;

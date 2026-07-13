@@ -497,6 +497,11 @@ vara-wallet --chain vara-eth --network hoodi vara-eth:state read 0xMIRROR
 vara-wallet --chain vara-eth --network hoodi --account agent-eth \
   vara-eth:message send 0xMIRROR --payload 0xfeed --via eth
 
+# Lowest-latency transaction-only path. Returns after RPC acceptance; direct
+# Ethereum output has txHash but no messageId/reply until the receipt is mined.
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:message send 0xMIRROR --payload 0xfeed --via eth --wait submitted
+
 # Root Sails flow on Vara.eth
 vara-wallet --chain vara-eth --network hoodi --account agent-eth \
   program upload ./program.opt.wasm --idl ./program.idl --args '[]'
@@ -506,7 +511,9 @@ vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args 
 
 Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. They appear in unqualified `wallet list` with `chain: "vara-eth"`, but native commands must not treat those files as Substrate wallets. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
 
-Vara.eth opens the validator connection and Ethereum bootstrap concurrently. Built-in presets use an Ethereum HTTP endpoint for one-shot requests, while `vara-eth:subscribe` keeps Ethereum WebSocket transport for event streams. Custom deployments can set `ETHEREUM_HTTP_RPC`; without it, request-mode calls fall back to `ETHEREUM_RPC`.
+Vara.eth opens the validator connection and Ethereum bootstrap concurrently when both are required. Direct Ethereum submit-only messages and WVARA writes use an Ethereum-only context and skip the validator connection. Built-in presets use an Ethereum HTTP endpoint for one-shot requests, while `vara-eth:subscribe` keeps Ethereum WebSocket transport for event streams. Custom deployments can set `ETHEREUM_HTTP_RPC`; without it, request-mode calls fall back to `ETHEREUM_RPC`.
+
+Message sends and state-changing Sails calls default to `--wait reply`; WVARA transfers and message replies default to `--wait receipt`. Use `--wait submitted` when an agent only needs RPC acceptance. Direct Ethereum submission returns `messageId: null` because that ID comes from the mined Mirror event. Injected submission returns its locally derived message ID but does not wait for or validate a validator reply. Do not assume `--resume` can follow a submit-only injected transaction: pending-promise reattachment is not yet supported upstream.
 
 Direct config setters are preset-aware: `config set varaNetwork <mainnet|testnet|local>` also updates `wsEndpoint`, and `config set varaEthNetwork <mainnet|hoodi|local>` also updates the Vara.eth RPC, Ethereum RPC, and Router fields. For Vara.eth Sails read calls, zero-address origin fallback is only for no selected account; a missing or corrupt selected wallet must fail instead of silently querying as zero address.
 

@@ -46,6 +46,10 @@ Rail-specific workflows remain available under `vara-eth:*`:
 - `vara-eth:message send` supports `--via eth` and `--via injected`; prefer
   `--via eth` for production writes until injected-path validator recovery is
   fully triaged.
+- `--wait submitted` returns after RPC acceptance for message sends, Sails
+  functions, WVARA transfers, and message replies. Direct Ethereum submissions
+  skip the validator connection for low-level messages and for Sails calls with
+  an explicit local IDL; completion-oriented defaults are unchanged.
 - `--no-validate-signature` exists only for injected-path diagnostics.
 - `reply.code` output is structured as `{ tag, raw, reason }`.
 - Vara.eth typed errors flow through stable JSON codes such as

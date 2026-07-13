@@ -14,6 +14,9 @@ cleanup work.
   diagnostics.
 - The networks guide now covers mainnet, Hoodi, and local as
   `docs/vara-eth-networks.md`.
+- Transaction-only workflows expose `--wait submitted`. Direct Ethereum and
+  WVARA writes avoid the validator connection, while injected submit-only sends
+  call `injected_sendTransaction` without opening a receipt subscription.
 
 ## Remaining Work
 

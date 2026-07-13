@@ -335,6 +335,7 @@ Acceptance for Vara.eth support:
 - `call --estimate` returns `api.fees.estimate({ type: 'sendMessage' })` data for
   function calls;
 - query calls return decoded Sails results;
-- function calls submit via `--via eth` or `--via injected`, wait for the reply,
-  and return decoded reply/result data;
+- function calls submit via `--via eth` or `--via injected`; the default
+  `--wait reply` returns decoded reply/result data, while `--wait submitted`
+  returns the transaction/message identifiers without decoding a result;
 - errors are typed by stable `code` and `reason`, not by English text.

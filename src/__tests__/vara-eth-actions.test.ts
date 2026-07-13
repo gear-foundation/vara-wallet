@@ -22,6 +22,9 @@ const mockEstimateFee = jest.fn();
 const mockSetSigner = jest.fn();
 const mockGetAddress = jest.fn();
 const mockSendAndWaitForReceipt = jest.fn();
+const mockSend = jest.fn();
+const mockSendMessage = jest.fn();
+const mockCreateInjectedTransaction = jest.fn();
 const mockGetMirrorClient = jest.fn();
 const mockProgramEvents = jest.fn();
 const mockRouterEvents = jest.fn();
@@ -46,6 +49,7 @@ const mockApi = {
     deploy: mockDeploy,
     sendAndWait: mockSendAndWait,
   },
+  createInjectedTransaction: mockCreateInjectedTransaction,
   fees: {
     estimate: mockEstimateFee,
   },
@@ -75,6 +79,8 @@ const mockSigner = {
 
 jest.mock('../services/vara-eth/api', () => ({
   getEthexeApi: jest.fn(),
+  getEthexeEthereumContext: jest.fn(),
+  getEthexeEthereumClient: jest.fn(),
   getMirrorClient: (...args: unknown[]) => mockGetMirrorClient(...args),
 }));
 
@@ -91,7 +97,15 @@ jest.mock('../utils', () => ({
   verbose: jest.fn(),
 }));
 
-const { getEthexeApi } = require('../services/vara-eth/api') as { getEthexeApi: jest.Mock };
+const {
+  getEthexeApi,
+  getEthexeEthereumContext,
+  getEthexeEthereumClient,
+} = require('../services/vara-eth/api') as {
+  getEthexeApi: jest.Mock;
+  getEthexeEthereumContext: jest.Mock;
+  getEthexeEthereumClient: jest.Mock;
+};
 const {
   resolveEthexeAccountAddress,
   resolveEthexeSigner,
@@ -122,6 +136,8 @@ const FIXTURE_IDL = join(__dirname, 'fixtures', 'sample-v2.idl');
 beforeEach(() => {
   jest.clearAllMocks();
   getEthexeApi.mockResolvedValue(mockApi);
+  getEthexeEthereumContext.mockReturnValue({ publicClient: mockApi.eth.publicClient });
+  getEthexeEthereumClient.mockResolvedValue(mockApi.eth);
   resolveEthexeAccountAddress.mockReturnValue(ADDRESS);
   resolveEthexeSigner.mockResolvedValue(mockSigner);
   mockGetBalance.mockResolvedValue(2_000_000_000_000_000_000n);
@@ -137,10 +153,17 @@ beforeEach(() => {
     blockNumber: 123n,
     status: 'success',
   });
-  mockTransfer.mockResolvedValue({ sendAndWaitForReceipt: mockSendAndWaitForReceipt });
+  mockSend.mockResolvedValue(TX_HASH);
+  mockTransfer.mockResolvedValue({ send: mockSend, sendAndWaitForReceipt: mockSendAndWaitForReceipt });
   mockPrepareAndSignPermitData.mockResolvedValue({ signature: '0xsig' });
   mockExecutableBalanceTopUpWithPermit.mockResolvedValue({ sendAndWaitForReceipt: mockSendAndWaitForReceipt });
   mockSendReply.mockResolvedValue({ sendAndWaitForReceipt: mockSendAndWaitForReceipt });
+  mockSendMessage.mockResolvedValue({ send: mockSend, sendAndWaitForReceipt: mockSendAndWaitForReceipt });
+  mockCreateInjectedTransaction.mockResolvedValue({
+    send: mockSend,
+    txHash: TX_HASH,
+    messageId: MESSAGE_ID,
+  });
   mockDeploy.mockResolvedValue({
     codeId: CODE_ID,
     programAddress: TO,
@@ -168,6 +191,7 @@ beforeEach(() => {
   mockGetMirrorClient.mockResolvedValue({
     executableBalanceTopUpWithPermit: mockExecutableBalanceTopUpWithPermit,
     sendReply: mockSendReply,
+    sendMessage: mockSendMessage,
   });
 });
 
@@ -228,6 +252,25 @@ describe('Vara.eth shared actions', () => {
     }));
   });
 
+  it('returns after WVARA submission without waiting for a receipt', async () => {
+    await outputVaraEthWvaraTransfer(TO, '1', {
+      account: 'hoodi-smoke',
+      units: 'raw',
+      wait: 'submitted',
+    });
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendAndWaitForReceipt).not.toHaveBeenCalled();
+    expect(mockDecimals).not.toHaveBeenCalled();
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      txHash: TX_HASH,
+      status: 'submitted',
+      wait: 'submitted',
+      blockNumber: null,
+    }));
+  });
+
   it('tops up via WVARA permit in one submitted transaction', async () => {
     mockDecimals.mockResolvedValue(12);
 
@@ -259,6 +302,26 @@ describe('Vara.eth shared actions', () => {
     }));
   });
 
+  it('returns after reply submission without waiting for a receipt', async () => {
+    const messageId = '0x' + '22'.repeat(32);
+    mockSendReply.mockResolvedValueOnce({ send: mockSend, sendAndWaitForReceipt: mockSendAndWaitForReceipt });
+
+    await outputVaraEthMessageReply(TO, messageId, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      wait: 'submitted',
+    });
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendAndWaitForReceipt).not.toHaveBeenCalled();
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      txHash: TX_HASH,
+      status: 'submitted',
+      wait: 'submitted',
+    }));
+  });
+
   it('passes validated timeoutMs to Vara.eth message sends', async () => {
     await outputVaraEthMessageSend(TO, {
       account: 'hoodi-smoke',
@@ -273,6 +336,67 @@ describe('Vara.eth shared actions', () => {
       timeoutMs: 2500,
       validateSignature: true,
     });
+  });
+
+  it('submits direct Ethereum messages without opening the validator API', async () => {
+    await outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'eth',
+      wait: 'submitted',
+    });
+
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith('0xabcd', undefined);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      via: 'eth',
+      wait: 'submitted',
+      status: 'submitted',
+      txHash: TX_HASH,
+      messageId: null,
+      reply: null,
+    }));
+  });
+
+  it('uses the injected send RPC without opening a receipt subscription', async () => {
+    await outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      via: 'injected',
+      wait: 'submitted',
+    });
+
+    expect(mockCreateInjectedTransaction).toHaveBeenCalledWith({
+      destination: TO,
+      payload: '0xabcd',
+      value: 0n,
+    });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      via: 'injected',
+      wait: 'submitted',
+      status: 'submitted',
+      txHash: TX_HASH,
+      messageId: MESSAGE_ID,
+      reply: null,
+    }));
+  });
+
+  it('rejects invalid wait modes before opening either RPC context', async () => {
+    await expect(outputVaraEthMessageSend(TO, {
+      account: 'hoodi-smoke',
+      payload: '0xabcd',
+      wait: 'finalized',
+    })).rejects.toMatchObject({
+      code: 'INVALID_WAIT_MODE',
+      meta: { wait: 'finalized', allowed: ['submitted', 'reply'] },
+    });
+
+    expect(getEthexeEthereumContext).not.toHaveBeenCalled();
+    expect(getEthexeApi).not.toHaveBeenCalled();
   });
 
   it('rejects invalid Vara.eth message send timeouts before opening the API', async () => {
@@ -400,6 +524,34 @@ describe('Vara.eth shared actions', () => {
       reply: expect.objectContaining({
         payload: '0x',
       }),
+    }));
+  });
+
+  it('submits a locally-described Sails call without opening the validator API', async () => {
+    const hash = '0x' + '55'.repeat(32);
+
+    await outputVaraEthSailsCall(TO, 'Demo/Echo', {
+      account: 'hoodi-smoke',
+      idl: FIXTURE_IDL,
+      args: `["0xaabb","${hash}"]`,
+      value: '0',
+      via: 'eth',
+      wait: 'submitted',
+    });
+
+    expect(getEthexeApi).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith(expect.stringMatching(/^0x/), 0n);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendAndWait).not.toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      chain: 'vara-eth',
+      kind: 'function',
+      status: 'submitted',
+      wait: 'submitted',
+      txHash: TX_HASH,
+      messageId: null,
+      result: null,
+      reply: null,
     }));
   });
 

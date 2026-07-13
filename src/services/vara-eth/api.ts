@@ -12,6 +12,7 @@ import path from 'node:path';
 import { createPublicClient, http, webSocket, type Address, type PublicClient } from 'viem';
 import {
   createVaraEthApi,
+  EthereumClient,
   WsVaraEthProvider,
   getMirrorClient as makeMirrorClient,
   type ITransactionSigner,
@@ -30,6 +31,8 @@ interface CacheEntry {
 }
 
 let cached: CacheEntry | null = null;
+let cachedEthereumContext: EthexeEthereumContext | null = null;
+let cachedEthereumClient: Promise<EthereumClient> | null = null;
 
 const ETHEXE_CONNECTION_TIMEOUT_MS = 10_000;
 
@@ -47,6 +50,14 @@ export interface EthexeApiOptions {
     ethereumHttpRpc?: string;
     routerAddress: `0x${string}` | null;
   };
+}
+
+export interface EthexeEthereumContext {
+  publicClient: PublicClient;
+  routerAddress: Address;
+  varaEthRpc: string;
+  endpoint: string;
+  transport: 'http' | 'websocket';
 }
 
 const BROADCAST_CANDIDATE_NAMES = new Set(['run-latest.json', 'broadcast.log.json']);
@@ -266,6 +277,52 @@ function createEthereumPublicClient(
 }
 
 /**
+ * Returns the request-mode Ethereum context without opening the Vara.eth
+ * validator connection. Direct Mirror and WVARA writes use this path when the
+ * caller only needs Ethereum transaction submission or an L1 receipt.
+ */
+export function getEthexeEthereumContext(options: EthexeApiOptions = {}): EthexeEthereumContext {
+  if (cachedEthereumContext) return cachedEthereumContext;
+
+  const cfg = resolveEthexeConfig(options);
+  const usesEthereumHttpRpc = options.ethereumTransport !== 'stream' && cfg.ethereumHttpRpc !== undefined;
+  const endpoint = usesEthereumHttpRpc ? cfg.ethereumHttpRpc! : cfg.ethereumRpc;
+  const configKey = usesEthereumHttpRpc ? 'ethereumHttpRpc' : 'ethereumRpc';
+  const transport = /^https?:\/\//i.test(endpoint) ? 'http' : 'websocket';
+  const publicClient = createEthereumPublicClient(endpoint, configKey);
+
+  cachedEthereumContext = {
+    publicClient,
+    routerAddress: cfg.routerAddress,
+    varaEthRpc: cfg.varaEthRpc,
+    endpoint,
+    transport,
+  };
+  markStage('vara_eth_config', { ethereumTransport: transport });
+  return cachedEthereumContext;
+}
+
+/**
+ * Builds the Ethereum-side client without initializing the Vara.eth validator
+ * API. WVARA and Router transactions need this client; direct Mirror sends can
+ * use {@link getEthexeEthereumContext} alone.
+ */
+export function getEthexeEthereumClient(options: EthexeApiOptions = {}): Promise<EthereumClient> {
+  if (cachedEthereumClient) return cachedEthereumClient;
+
+  const context = getEthexeEthereumContext(options);
+  const client = new EthereumClient(context.publicClient, context.routerAddress);
+  cachedEthereumClient = withEthexeConnectionTimeout(
+    client.waitForInitialization().then(() => client),
+    context.endpoint,
+  ).catch((rawError) => {
+    cachedEthereumClient = null;
+    throw classifyTransportError(rawError, { endpoint: context.endpoint }) ?? rawError;
+  });
+  return cachedEthereumClient;
+}
+
+/**
  * Returns a cached `VaraEthApi` for the current process. Within one CLI
  * invocation every caller shares the same instance; on the second call the
  * supplied options are ignored — only the first call's resolution wins.
@@ -273,14 +330,16 @@ function createEthereumPublicClient(
 export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<VaraEthApi> {
   if (cached) return cached.api;
 
-  const cfg = resolveEthexeConfig(options);
-  const usesEthereumHttpRpc = options.ethereumTransport !== 'stream' && cfg.ethereumHttpRpc !== undefined;
-  const ethereumEndpoint = usesEthereumHttpRpc ? cfg.ethereumHttpRpc! : cfg.ethereumRpc;
-  const ethereumConfigKey = usesEthereumHttpRpc ? 'ethereumHttpRpc' : 'ethereumRpc';
-  const ethereumTransport = /^https?:\/\//i.test(ethereumEndpoint) ? 'http' : 'websocket';
-  markStage('vara_eth_config', { ethereumTransport });
+  const ethereumContext = getEthexeEthereumContext(options);
+  const {
+    endpoint: ethereumEndpoint,
+    transport: ethereumTransport,
+    publicClient,
+    varaEthRpc,
+    routerAddress,
+  } = ethereumContext;
 
-  const ws = new WsVaraEthProvider(cfg.varaEthRpc);
+  const ws = new WsVaraEthProvider(varaEthRpc);
   const disconnectWs = () => {
     try {
       const disconnect = ws.disconnect?.();
@@ -290,16 +349,15 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
     }
   };
   let validatorConnected = false;
-  const timeoutEndpoint = () => validatorConnected ? ethereumEndpoint : cfg.varaEthRpc;
+  const timeoutEndpoint = () => validatorConnected ? ethereumEndpoint : varaEthRpc;
   let api: VaraEthApi;
   try {
-    const publicClient = createEthereumPublicClient(ethereumEndpoint, ethereumConfigKey);
     const [, initializedApi] = await withEthexeConnectionTimeout(
       Promise.all([
         ws.connect().then(() => {
           validatorConnected = true;
         }),
-        createVaraEthApi(ws, publicClient, cfg.routerAddress),
+        createVaraEthApi(ws, publicClient, routerAddress),
       ]),
       timeoutEndpoint,
       disconnectWs,
@@ -310,7 +368,7 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
     if (!(rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT')) disconnectWs();
     const failedEndpoint = rawErr instanceof CliError && rawErr.code === 'CONNECTION_TIMEOUT'
       ? timeoutEndpoint()
-      : (errorMentionsEndpoint(rawErr, ethereumEndpoint) ? ethereumEndpoint : cfg.varaEthRpc);
+      : (errorMentionsEndpoint(rawErr, ethereumEndpoint) ? ethereumEndpoint : varaEthRpc);
     throw classifyTransportError(rawErr, { endpoint: failedEndpoint }) ?? rawErr;
   }
 
@@ -319,22 +377,25 @@ export async function getEthexeApi(options: EthexeApiOptions = {}): Promise<Vara
 }
 
 /**
- * Builds a `MirrorClient` for the given program address, reusing the cached
- * `publicClient` from {@link getEthexeApi}. Optional `signer` switches the
- * client into write mode.
+ * Builds a `MirrorClient` for the given program address from the lightweight
+ * Ethereum request context. Optional `signer` switches the client into write
+ * mode without opening the Vara.eth validator connection.
  */
 export async function getMirrorClient(address: Address, signer?: ITransactionSigner): Promise<MirrorClient> {
-  const api = await getEthexeApi();
-  return makeMirrorClient({ address, publicClient: api.eth.publicClient, signer });
+  const { publicClient } = getEthexeEthereumContext();
+  return makeMirrorClient({ address, publicClient, signer });
 }
 
 /** Tears down the cached Vara.eth connections. Safe to call when nothing is open. */
 export function disconnectEthexeApi(): void {
-  if (!cached) return;
-  try {
-    cached.ws.disconnect?.();
-  } catch {
-    // ignore — disconnect during shutdown
+  if (cached) {
+    try {
+      cached.ws.disconnect?.();
+    } catch {
+      // ignore — disconnect during shutdown
+    }
   }
   cached = null;
+  cachedEthereumContext = null;
+  cachedEthereumClient = null;
 }

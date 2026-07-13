@@ -67,6 +67,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .option('--via <path>', 'Vara.eth send path: injected (default) or eth', 'injected')
+    .option('--wait <stage>', 'Vara.eth completion stage: submitted or reply (default)', 'reply')
     .option('--timeout-ms <ms>', 'Vara.eth injected promise timeout')
     .option('--no-validate-signature', 'Vara.eth diagnostics: skip injected validator signature validation')
     .option('--resume <txHash>', 'Vara.eth: inspect a cached injected send outcome by tx hash')
@@ -79,6 +80,7 @@ export function registerMessageCommand(program: Command): void {
       metadata?: string;
       voucher?: string;
       via?: 'eth' | 'injected';
+      wait?: string;
       timeoutMs?: string;
       validateSignature?: boolean;
       resume?: string;
@@ -87,7 +89,7 @@ export function registerMessageCommand(program: Command): void {
       if (resolveActiveChain(program) === 'vara-eth') {
         if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher) {
           throw new CliError(
-            '--chain vara-eth message send supports --payload, --value, --units, --via, --timeout-ms, --resume, and account options',
+            '--chain vara-eth message send supports --payload, --value, --units, --via, --wait, --timeout-ms, --resume, and account options',
             'UNSUPPORTED_CHAIN_OPTION',
           );
         }
@@ -196,6 +198,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .option('--mirror <address>', 'Vara.eth Mirror program address for the reply')
+    .option('--wait <stage>', 'Vara.eth completion stage: submitted or receipt (default)', 'receipt')
     .action(async (messageId: string, options: {
       payload: string;
       payloadAscii?: string;
@@ -205,6 +208,7 @@ export function registerMessageCommand(program: Command): void {
       metadata?: string;
       voucher?: string;
       mirror?: string;
+      wait?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       if (resolveActiveChain(program) === 'vara-eth') {
@@ -213,7 +217,7 @@ export function registerMessageCommand(program: Command): void {
         }
         if (options.payloadAscii || options.gasLimit || options.metadata || options.voucher || options.units) {
           throw new CliError(
-            '--chain vara-eth message reply supports --mirror, --payload, --value, and account options',
+            '--chain vara-eth message reply supports --mirror, --payload, --value, --wait, and account options',
             'UNSUPPORTED_CHAIN_OPTION',
           );
         }

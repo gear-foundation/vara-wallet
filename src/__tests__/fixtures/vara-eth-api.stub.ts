@@ -44,6 +44,18 @@ export class NoSailsIdlError extends VaraEthError {
   }
 }
 export class LocalSigner {}
+let ethereumClientConstructCalls = 0;
+let ethereumClientInitCalls = 0;
+export class EthereumClient {
+  publicClient: unknown;
+  routerAddress: unknown;
+  constructor(publicClient: unknown, routerAddress: unknown) {
+    ethereumClientConstructCalls += 1;
+    this.publicClient = publicClient;
+    this.routerAddress = routerAddress;
+  }
+  async waitForInitialization() { ethereumClientInitCalls += 1; }
+}
 let wsConnectImplementation: () => Promise<void> = async () => {};
 let createApiImplementation: (...args: unknown[]) => Promise<unknown> = async () => ({});
 let wsConnectCalls = 0;
@@ -71,6 +83,14 @@ export function __getCreateApiCallsForTests(): number {
   return createApiCalls;
 }
 
+export function __getEthereumClientConstructCallsForTests(): number {
+  return ethereumClientConstructCalls;
+}
+
+export function __getEthereumClientInitCallsForTests(): number {
+  return ethereumClientInitCalls;
+}
+
 export function __getLastPublicClientTransportForTests(): string | undefined {
   const client = lastCreateApiArgs[1] as { transport?: { type?: string } } | undefined;
   return client?.transport?.type;
@@ -82,6 +102,8 @@ export function __resetVaraEthApiStubForTests(): void {
   wsConnectCalls = 0;
   wsDisconnectCalls = 0;
   createApiCalls = 0;
+  ethereumClientConstructCalls = 0;
+  ethereumClientInitCalls = 0;
   lastCreateApiArgs = [];
 }
 
