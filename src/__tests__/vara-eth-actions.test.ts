@@ -377,6 +377,8 @@ describe('Vara.eth shared actions', () => {
   });
 
   it('uses the injected send RPC without opening a receipt subscription', async () => {
+    mockSend.mockResolvedValueOnce('Accept');
+
     await outputVaraEthMessageSend(TO, {
       account: 'hoodi-smoke',
       payload: '0xabcd',
@@ -600,6 +602,28 @@ describe('Vara.eth shared actions', () => {
       messageId: null,
       result: null,
       reply: null,
+    }));
+  });
+
+  it('uses the deterministic injected transaction ID when the validator acknowledges with Accept', async () => {
+    mockSend.mockResolvedValueOnce('Accept');
+
+    await outputVaraEthSailsCall(TO, 'Demo/Echo', {
+      account: 'hoodi-smoke',
+      idl: FIXTURE_IDL,
+      args: '["0xaabb","0x5555555555555555555555555555555555555555555555555555555555555555"]',
+      value: '0',
+      via: 'injected',
+      wait: 'submitted',
+    });
+
+    expect(mockCreateInjectedTransaction).toHaveBeenCalled();
+    expect(mockOutput).toHaveBeenCalledWith(expect.objectContaining({
+      via: 'injected',
+      wait: 'submitted',
+      status: 'submitted',
+      txHash: TX_HASH,
+      messageId: MESSAGE_ID,
     }));
   });
 
