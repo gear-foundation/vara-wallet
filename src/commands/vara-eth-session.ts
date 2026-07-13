@@ -46,13 +46,7 @@ function sessionError(id: string | number | null, error: unknown): void {
   });
 }
 
-function parseRequest(line: string): SessionCall {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    throw new CliError('Session request must be valid JSON', 'INVALID_SESSION_REQUEST');
-  }
+function parseRequest(parsed: unknown): SessionCall {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new CliError('Session request must be an object', 'INVALID_SESSION_REQUEST');
   }
@@ -69,8 +63,10 @@ function parseRequest(line: string): SessionCall {
   return request;
 }
 
-function assertSuccessReply(code: { isSuccess: boolean }): void {
-  if (!code.isSuccess) throw new CliError('Sails query returned a non-success reply', 'PROGRAM_ERROR');
+function assertSuccessReply(code: { isSuccess: boolean }, replyCode: ReturnType<typeof serializeReplyCode>): void {
+  if (!code.isSuccess) {
+    throw new CliError('Sails query returned a non-success reply', 'PROGRAM_ERROR', { replyCode });
+  }
 }
 
 export function registerVaraEthSessionCommand(program: Command): void {
@@ -106,8 +102,12 @@ export async function runVaraEthSession(
     if (!line.trim()) continue;
     let raw: unknown = null;
     try {
-      raw = JSON.parse(line);
-      const request = parseRequest(line);
+      try {
+        raw = JSON.parse(line);
+      } catch {
+        throw new CliError('Session request must be valid JSON', 'INVALID_SESSION_REQUEST');
+      }
+      const request = parseRequest(raw);
       const id = requestId(raw);
       const programAddress = asAddress(request.program, 'program');
       const { serviceName, methodName } = parseSailsMethod(request.method);
@@ -126,7 +126,8 @@ export async function runVaraEthSession(
 
       if (resolved.kind === 'query') {
         const reply = await api.call.program.calculateReplyForHandle(origin, programAddress, payload, 0n);
-        assertSuccessReply(reply.code);
+        const replyCode = serializeReplyCode(reply.code);
+        assertSuccessReply(reply.code, replyCode);
         outputNdjson({
           type: 'result',
           id,
@@ -135,7 +136,7 @@ export async function runVaraEthSession(
           service: serviceName,
           method: methodName,
           result: decodeVaraEthSailsReply(loaded.sails, resolved.method as SailsMethodLike, serviceName, reply.payload),
-          reply: { payload: reply.payload, value: String(reply.value), code: serializeReplyCode(reply.code) },
+          reply: { payload: reply.payload, value: String(reply.value), code: replyCode },
         });
         continue;
       }

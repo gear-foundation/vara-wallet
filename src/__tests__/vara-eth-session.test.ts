@@ -15,11 +15,14 @@ const mockResolveMethod = jest.fn();
 const mockDecodeReply = jest.fn();
 const mockSend = jest.fn();
 const mockSetDefaultValidator = jest.fn();
+const mockSerializeReplyCode = jest.fn();
 
 jest.mock('../services/vara-eth/api', () => ({ getEthexeApi: jest.fn() }));
 jest.mock('../services/vara-eth/account', () => ({ resolveEthexeSigner: jest.fn() }));
 jest.mock('../services/vara-eth/sails-idl', () => ({ loadVaraEthSails: (...args: unknown[]) => mockLoadSails(...args) }));
-jest.mock('../shared/output-eth/reply-code', () => ({ serializeReplyCode: jest.fn(() => ({ tag: 'Success' })) }));
+jest.mock('../shared/output-eth/reply-code', () => ({
+  serializeReplyCode: (...args: unknown[]) => mockSerializeReplyCode(...args),
+}));
 jest.mock('../commands/vara-eth-actions', () => ({
   parseSailsMethod: (method: string) => {
     const [serviceName, methodName] = method.split('/');
@@ -56,6 +59,7 @@ beforeEach(() => {
   mockGetAddress.mockResolvedValue(ADDRESS);
   mockLoadSails.mockResolvedValue({ sails });
   mockCalculateReply.mockResolvedValue({ code: { isSuccess: true }, payload: '0x1234', value: 0n });
+  mockSerializeReplyCode.mockReturnValue({ tag: 'Success' });
   mockDecodeReply.mockReturnValue({ decoded: true });
   mockCreateInjectedTransaction.mockResolvedValue({
     txHash: TX_HASH,
@@ -109,5 +113,21 @@ describe('vara-eth:session', () => {
       type: 'error', id: 'bad', error: expect.objectContaining({ code: 'INVALID_SESSION_REQUEST' }),
     }));
     expect(mockOutputNdjson).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'result', id: 'good' }));
+  });
+
+  it('includes the serialized reply code when a query is rejected', async () => {
+    mockResolveMethod.mockReturnValue({ kind: 'query', method: queryMethod });
+    mockCalculateReply.mockResolvedValue({ code: { isSuccess: false }, payload: '0x', value: 0n });
+    mockSerializeReplyCode.mockReturnValue({ tag: 'Error', raw: '0x02000000' });
+
+    await runVaraEthSession({}, Readable.from([
+      `${JSON.stringify({ id: 'rejected', program: PROGRAM, method: 'World/Session', args: [] })}\n`,
+    ]));
+
+    expect(mockOutputNdjson).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: 'error',
+      id: 'rejected',
+      error: expect.objectContaining({ code: 'PROGRAM_ERROR', replyCode: { tag: 'Error', raw: '0x02000000' } }),
+    }));
   });
 });
