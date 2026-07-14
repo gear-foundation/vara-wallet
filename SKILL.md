@@ -265,6 +265,48 @@ Connection timeout is 10s. Bad endpoints fail fast with `TRANSPORT_ERROR` instea
 | Testnet | `wss://testnet.vara.network` | `--network testnet` |
 | Local | `ws://localhost:9944` | `--network local` |
 
+## Vara.eth mailbox claims
+
+Use `--chain vara-eth` for the Ethereum-anchored rail. Its network presets are
+`mainnet`, `hoodi`, and `local`; a claim requires an Ethereum V3 wallet selected
+with `--account` and funded ETH for L1 gas.
+
+```bash
+# Submit immediately after Ethereum RPC acceptance.
+$VW --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --wait submitted
+
+# The default receipt wait is bounded to 45 seconds. A timeout returns normal
+# JSON with code CLAIM_PENDING, the transaction hash, and the nonce.
+$VW --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID
+
+# Recheck a saved transaction without signing or broadcasting.
+$VW --chain vara-eth --network hoodi \
+  vara-eth:mailbox claim --resume 0xTX_HASH
+
+# Replace a saved pending claim using the same calldata and nonce. Use the same
+# Ethereum account and network as the original transaction.
+$VW --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:mailbox claim --replace 0xTX_HASH
+```
+
+Claims use only the Ethereum RPC for submission, receipt polling, resume, and
+replacement, so they do not open a Vara.eth validator connection. The wallet
+stores recoverable, secret-free metadata in
+`~/.vara-wallet/vara-eth-transactions.db`. It is best-effort: a local database
+failure never invalidates an accepted broadcast, but the transaction cannot be
+recovered after the process exits.
+
+`--replace` is restricted to a saved pending claim and preserves the original
+Mirror, `claimedId`, calldata, nonce, sender, and chain ID. Fresh EIP-1559
+claims have 20% max-fee headroom; replacements use a fresh quote and at least a
+12.5% bump. A saved legacy gas-price transaction remains in legacy fee mode.
+Supplying both `--max-fee-per-gas` and `--max-priority-fee-per-gas` (wei) skips
+fee quoting; a partial override still needs a quote. A `confirmed` claim means
+the Mirror accepted `ValueClaimingRequested`; wait for `ValueClaimed` to know
+the co-processor has completed the claim.
+
 ## Transport Errors
 
 Replaces the legacy `CONNECTION_TIMEOUT` (WS) and `TIMEOUT` / `CONNECTION_FAILED` (program/dex/vft/message RPC paths) codes — scripts grepping the old codes won't fire. Faucet HTTP `CONNECTION_FAILED` is unchanged. `--light` failures route through the same taxonomy.

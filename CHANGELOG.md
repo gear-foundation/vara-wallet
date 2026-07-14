@@ -2,7 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.20.6] - 2026-07-14
+
+### Added
+
+- Add recoverable direct L1 Vara.eth mailbox claims. Claims use a bounded
+  receipt wait, persist secret-free transaction metadata locally, and support
+  resume, one automatic replacement, or a manually controlled same-nonce
+  replacement with fee-bump and sender/chain safeguards.
+
+### Fixed
+
+- Keep Vara.eth mailbox claim submission, receipt polling, and recovery on the
+  Ethereum-only path so they do not start an unnecessary validator connection.
 
 ## [0.20.5] - 2026-07-13
 

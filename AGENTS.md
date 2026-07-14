@@ -502,6 +502,14 @@ vara-wallet --chain vara-eth --network hoodi --account agent-eth \
 vara-wallet --chain vara-eth --network hoodi --account agent-eth \
   vara-eth:message send 0xMIRROR --payload 0xfeed --via eth --wait submitted
 
+# Submit a mailbox claim, then recover it by the saved L1 transaction hash.
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --wait submitted
+vara-wallet --chain vara-eth --network hoodi \
+  vara-eth:mailbox claim --resume 0xTX_HASH
+vara-wallet --chain vara-eth --network hoodi --account agent-eth \
+  vara-eth:mailbox claim --replace 0xTX_HASH
+
 # Root Sails flow on Vara.eth
 vara-wallet --chain vara-eth --network hoodi --account agent-eth \
   program upload ./program.opt.wasm --idl ./program.idl --args '[]'
@@ -511,9 +519,11 @@ vara-wallet --chain vara-eth --network hoodi call 0xMIRROR Service/Query --args 
 
 Vara.eth wallet files are `~/.vara-wallet/wallets/<name>.vara-eth.json`. They appear in unqualified `wallet list` with `chain: "vara-eth"`, but native commands must not treat those files as Substrate wallets. Passphrases resolve from `--passphrase`, named passphrase files, or `VARA_PASSPHRASE` depending on the command path. Typed Vara.eth errors use stable JSON codes such as `MESSAGE_REVERTED`, `PROMISE_TIMEOUT`, `CHAIN_ID_MISMATCH`, and `TRANSPORT_ERROR` with top-level metadata.
 
-Vara.eth opens the validator connection and Ethereum bootstrap concurrently when both are required. Direct Ethereum submit-only messages and WVARA writes use an Ethereum-only context and skip the validator connection. Built-in presets use an Ethereum HTTP endpoint for one-shot requests, while `vara-eth:subscribe` keeps Ethereum WebSocket transport for event streams. Custom deployments can set `ETHEREUM_HTTP_RPC`; without it, request-mode calls fall back to `ETHEREUM_RPC`.
+Vara.eth opens the validator connection and Ethereum bootstrap concurrently when both are required. Direct Ethereum submit-only messages, WVARA writes, and mailbox claims in every mode (submit, receipt wait, resume, and replacement) use an Ethereum-only context and skip the validator connection. Built-in presets use an Ethereum HTTP endpoint for one-shot requests, while `vara-eth:subscribe` keeps Ethereum WebSocket transport for event streams. Custom deployments can set `ETHEREUM_HTTP_RPC`; without it, request-mode calls fall back to `ETHEREUM_RPC`.
 
 Message sends and state-changing Sails calls default to `--wait reply`; WVARA transfers and message replies default to `--wait receipt`. Use `--wait submitted` when an agent only needs RPC acceptance. Direct Ethereum submission returns `messageId: null` because that ID comes from the mined Mirror event. Injected submission returns its locally derived message ID but does not wait for or validate a validator reply. Do not assume `--resume` can follow a submit-only injected transaction: pending-promise reattachment is not yet supported upstream.
+
+Mailbox claims default to a bounded 45-second L1 receipt wait. A timeout is successful command output with `status: "pending"` and `code: "CLAIM_PENDING"`, including the hash and nonce to pass to `--resume`. Claim transactions are recorded best-effort (without secrets) in `~/.vara-wallet/vara-eth-transactions.db`; persistence failure never turns an already accepted broadcast into a command failure, but prevents recovery after the process exits. `--replace` is only for a saved pending claim and is bound to its original sender, chain ID, Mirror, calldata, and nonce. Fresh EIP-1559 claims use a 20% max-fee headroom; replacements use a fresh quote and at least a 12.5% bump. Legacy saved gas-price claims keep legacy fee mode. Both `--max-fee-per-gas` and `--max-priority-fee-per-gas` may be supplied in wei to skip fee quoting; a partial override still needs a quote. A mined `ValueClaimingRequested` confirms that Mirror accepted the request, not that the co-processor has emitted the final `ValueClaimed` event.
 
 Direct config setters are preset-aware: `config set varaNetwork <mainnet|testnet|local>` also updates `wsEndpoint`, and `config set varaEthNetwork <mainnet|hoodi|local>` also updates the Vara.eth RPC, Ethereum RPC, and Router fields. For Vara.eth Sails read calls, zero-address origin fallback is only for no selected account; a missing or corrupt selected wallet must fail instead of silently querying as zero address.
 
