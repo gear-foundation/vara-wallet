@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import type { TransactionReceipt, TransactionRequest } from 'viem';
+import { decodeEventLog, type PublicClient, type TransactionReceipt, type TransactionRequest } from 'viem';
 
-import { getEthexeApi, getMirrorClient } from '../services/vara-eth/api';
+import { getEthexeEthereumContext, getMirrorClient } from '../services/vara-eth/api';
 import { resolveEthexeSigner } from '../services/vara-eth/account';
 import {
   getDirectTransaction,
@@ -20,6 +20,15 @@ const FEE_HEADROOM_NUMERATOR = 1200n;
 const FEE_HEADROOM_DENOMINATOR = 1000n;
 const REPLACEMENT_BUMP_NUMERATOR = 1125n;
 const REPLACEMENT_BUMP_DENOMINATOR = 1000n;
+
+const VALUE_CLAIMING_REQUESTED_ABI = [{
+  type: 'event',
+  name: 'ValueClaimingRequested',
+  inputs: [
+    { name: 'claimedId', type: 'bytes32', indexed: false },
+    { name: 'source', type: 'address', indexed: true },
+  ],
+}] as const;
 
 interface ClaimOptions {
   account?: string;
@@ -42,11 +51,12 @@ interface PreparedClaim {
     send(): Promise<`0x${string}`>;
     estimateGas(): Promise<bigint>;
     getTx(): TransactionRequest;
-    getValueClaimingRequestedEvent(): Promise<{ source: string; claimedId: string }>;
   };
   sender: `0x${string}`;
+  chainId: number;
   nonce: bigint;
   request: TransactionRequest;
+  publicClient: PublicClient;
 }
 
 export function registerVaraEthMailboxCommand(program: Command): void {
@@ -111,7 +121,7 @@ export async function outputVaraEthMailboxClaim(
   }
 
   const firstWaitMs = replaceAfterMs ?? timeoutMs;
-  const receipt = await waitForClaimReceipt(prepared, txHash, firstWaitMs);
+  const receipt = await waitForClaimReceipt(prepared.publicClient, txHash, firstWaitMs);
   if (receipt) {
     await outputClaimReceipt(prepared, txHash, receipt, storedReplacement?.tx_hash ?? null);
     return;
@@ -132,7 +142,7 @@ export async function outputVaraEthMailboxClaim(
   );
   const replacementHash = await submitClaim(replacement, txHash);
   markDirectTransactionReplaced(txHash, replacementHash);
-  const replacementReceipt = await waitForClaimReceipt(replacement, replacementHash, timeoutMs);
+  const replacementReceipt = await waitForClaimReceipt(replacement.publicClient, replacementHash, timeoutMs);
   if (replacementReceipt) {
     await outputClaimReceipt(replacement, replacementHash, replacementReceipt, txHash);
     return;
@@ -181,15 +191,15 @@ async function prepareClaim(
   opts: ClaimOptions,
   replacement?: DirectTransactionRecord,
 ): Promise<PreparedClaim> {
-  const api = await getEthexeApi();
-  const signer = await resolveEthexeSigner(api.eth.publicClient, opts);
-  api.eth.setSigner(signer);
-  const sender = await signer.getAddress();
+  const { publicClient } = getEthexeEthereumContext();
+  const signer = await resolveEthexeSigner(publicClient, opts);
+  const [sender, chainId] = await Promise.all([signer.getAddress(), publicClient.getChainId()]);
+  assertReplacementScope(replacement, sender, chainId);
   const mirrorClient = await getMirrorClient(mirror, signer);
   const tx = await mirrorClient.claimValue(claimedId) as PreparedClaim['tx'];
   const request = tx.getTx();
   const explicitNonce = parseNonce(opts.nonce);
-  const nonce = replacement ? parseNonce(replacement.nonce)! : (explicitNonce ?? await api.eth.publicClient.getTransactionCount({ address: sender, blockTag: 'pending' }));
+  const nonce = replacement ? parseNonce(replacement.nonce)! : (explicitNonce ?? await publicClient.getTransactionCount({ address: sender, blockTag: 'pending' }));
   if (replacement && explicitNonce !== undefined && explicitNonce !== nonce) {
     throw new CliError('--nonce must equal the nonce of the claim being replaced', 'CLAIM_REPLACEMENT_MISMATCH', { nonce: nonce.toString() });
   }
@@ -198,9 +208,32 @@ async function prepareClaim(
   const explicitGas = parseOptionalBigInt(opts.gas, '--gas');
   if (explicitGas !== undefined) request.gas = explicitGas;
   else await tx.estimateGas();
-  await applyClaimFees(request, api.eth.publicClient, opts, replacement);
+  await applyClaimFees(request, publicClient, opts, replacement);
 
-  return { mirror, claimedId, tx, sender, nonce: BigInt(nonce), request };
+  return { mirror, claimedId, tx, sender, chainId, nonce: BigInt(nonce), request, publicClient };
+}
+
+function assertReplacementScope(
+  replacement: DirectTransactionRecord | undefined,
+  sender: `0x${string}`,
+  chainId: number,
+): void {
+  if (!replacement) return;
+  if (replacement.sender.toLowerCase() !== sender.toLowerCase()) {
+    throw new CliError('The selected account does not match the sender of the pending claim', 'CLAIM_REPLACEMENT_SENDER_MISMATCH', {
+      expectedSender: replacement.sender,
+      sender,
+    });
+  }
+  if (replacement.chain_id === null) {
+    throw new CliError('The saved claim has no chain ID and cannot be safely replaced', 'CLAIM_REPLACEMENT_CHAIN_UNKNOWN');
+  }
+  if (Number(replacement.chain_id) !== chainId) {
+    throw new CliError('The selected network does not match the saved claim transaction', 'CLAIM_REPLACEMENT_CHAIN_MISMATCH', {
+      expectedChainId: replacement.chain_id,
+      chainId: chainId.toString(),
+    });
+  }
 }
 
 function parseNonce(raw: string | undefined): number | undefined {
@@ -214,15 +247,23 @@ function parseNonce(raw: string | undefined): number | undefined {
 
 async function applyClaimFees(
   request: TransactionRequest,
-  publicClient: { estimateFeesPerGas(): Promise<{ maxFeePerGas?: bigint | null; maxPriorityFeePerGas?: bigint | null; gasPrice?: bigint | null }>; getGasPrice(): Promise<bigint> },
+  publicClient: Pick<PublicClient, 'estimateFeesPerGas' | 'getGasPrice'>,
   opts: ClaimOptions,
   replacement?: DirectTransactionRecord,
 ): Promise<void> {
   const explicitMaxFee = parseOptionalBigInt(opts.maxFeePerGas, '--max-fee-per-gas');
   const explicitPriorityFee = parseOptionalBigInt(opts.maxPriorityFeePerGas, '--max-priority-fee-per-gas');
-  const quote = await publicClient.estimateFeesPerGas();
   const previousMaxFee = replacement?.max_fee_per_gas ? BigInt(replacement.max_fee_per_gas) : undefined;
   const previousPriorityFee = replacement?.max_priority_fee_per_gas ? BigInt(replacement.max_priority_fee_per_gas) : undefined;
+  const previousGasPrice = replacement?.gas_price ? BigInt(replacement.gas_price) : undefined;
+
+  if (previousGasPrice !== undefined && previousMaxFee === undefined) {
+    if (explicitMaxFee !== undefined || explicitPriorityFee !== undefined) {
+      throw new CliError('A legacy claim replacement must preserve gasPrice fee mode', 'CLAIM_REPLACEMENT_FEE_MODE_MISMATCH');
+    }
+    request.gasPrice = maximum(await publicClient.getGasPrice(), replacementBump(previousGasPrice));
+    return;
+  }
 
   if (replacement && explicitMaxFee !== undefined && previousMaxFee !== undefined && explicitMaxFee <= previousMaxFee) {
     throw new CliError('--max-fee-per-gas must exceed the previous replacement fee', 'REPLACEMENT_FEE_TOO_LOW');
@@ -231,6 +272,13 @@ async function applyClaimFees(
     throw new CliError('--max-priority-fee-per-gas must exceed the previous replacement fee', 'REPLACEMENT_FEE_TOO_LOW');
   }
 
+  if (explicitMaxFee !== undefined && explicitPriorityFee !== undefined) {
+    request.maxFeePerGas = explicitMaxFee;
+    request.maxPriorityFeePerGas = explicitPriorityFee;
+    return;
+  }
+
+  const quote = await publicClient.estimateFeesPerGas();
   const quoteMaxFee = quote.maxFeePerGas === null || quote.maxFeePerGas === undefined
     ? undefined
     : feeHeadroom(quote.maxFeePerGas);
@@ -241,7 +289,11 @@ async function applyClaimFees(
     return;
   }
 
-  request.gasPrice = maximum(await publicClient.getGasPrice(), replacement?.gas_price ? replacementBump(BigInt(replacement.gas_price)) : undefined);
+  if (explicitMaxFee !== undefined || explicitPriorityFee !== undefined) {
+    throw new CliError('Both EIP-1559 fee options require an EIP-1559 fee quote', 'FEE_ESTIMATE_UNAVAILABLE');
+  }
+
+  request.gasPrice = maximum(await publicClient.getGasPrice());
 }
 
 function replacementBump(value: bigint | undefined): bigint | undefined {
@@ -264,6 +316,7 @@ async function submitClaim(prepared: PreparedClaim, replacementOf?: string): Pro
   try {
     insertDirectTransaction({
       txHash,
+      chainId: prepared.chainId,
       operation: 'mailbox_claim',
       mirror: prepared.mirror,
       claimedId: prepared.claimedId,
@@ -282,10 +335,9 @@ async function submitClaim(prepared: PreparedClaim, replacementOf?: string): Pro
   return txHash;
 }
 
-async function waitForClaimReceipt(prepared: PreparedClaim, txHash: `0x${string}`, timeout: number): Promise<TransactionReceipt | null> {
-  const api = await getEthexeApi();
+async function waitForClaimReceipt(publicClient: PublicClient, txHash: `0x${string}`, timeout: number): Promise<TransactionReceipt | null> {
   try {
-    return await api.eth.publicClient.waitForTransactionReceipt({ hash: txHash, timeout });
+    return await publicClient.waitForTransactionReceipt({ hash: txHash, timeout });
   } catch (error) {
     if (isReceiptTimeout(error)) return null;
     markDirectTransactionFailed(txHash, error instanceof Error ? error.message : String(error));
@@ -301,7 +353,7 @@ async function outputClaimReceipt(
 ): Promise<void> {
   const status = receipt.status === 'success' ? 'confirmed' : 'reverted';
   markDirectTransactionReceipt(txHash, status, receipt.blockNumber);
-  const event = receipt.status === 'success' ? await prepared.tx.getValueClaimingRequestedEvent() : null;
+  const event = receipt.status === 'success' ? findValueClaimingRequestedEvent(receipt) : null;
   output({
     mirror: prepared.mirror,
     claimedId: prepared.claimedId,
@@ -313,6 +365,20 @@ async function outputClaimReceipt(
     fees: serializeFees(prepared.request),
     event: event ? { source: event.source, claimedId: event.claimedId } : null,
   });
+}
+
+function findValueClaimingRequestedEvent(receipt: TransactionReceipt): { source: string; claimedId: string } | null {
+  for (const log of receipt.logs ?? []) {
+    try {
+      const event = decodeEventLog({ abi: VALUE_CLAIMING_REQUESTED_ABI, data: log.data, topics: log.topics });
+      if (event.eventName !== 'ValueClaimingRequested') continue;
+      const args = event.args as { source?: string; claimedId?: string };
+      if (args.source && args.claimedId) return { source: args.source, claimedId: args.claimedId };
+    } catch {
+      // A receipt can contain logs from unrelated contracts.
+    }
+  }
+  return null;
 }
 
 function outputClaimSubmission(
@@ -347,6 +413,7 @@ function directRecordFromPreparedClaim(prepared: PreparedClaim, txHash: `0x${str
   const fees = serializeFees(prepared.request);
   return {
     tx_hash: txHash,
+    chain_id: prepared.chainId.toString(),
     operation: 'mailbox_claim',
     mirror: prepared.mirror,
     claimed_id: prepared.claimedId,
@@ -371,9 +438,9 @@ async function resumeClaim(txHash: `0x${string}`): Promise<void> {
   if (!stored || stored.operation !== 'mailbox_claim') {
     throw new CliError('No saved mailbox claim was found for --resume', 'CLAIM_RESUME_NOT_FOUND', { txHash });
   }
-  const api = await getEthexeApi();
+  const { publicClient } = getEthexeEthereumContext();
   try {
-    const receipt = await api.eth.publicClient.getTransactionReceipt({ hash: txHash });
+    const receipt = await publicClient.getTransactionReceipt({ hash: txHash });
     const status = receipt.status === 'success' ? 'confirmed' : 'reverted';
     markDirectTransactionReceipt(txHash, status, receipt.blockNumber);
     output({
@@ -393,11 +460,12 @@ async function resumeClaim(txHash: `0x${string}`): Promise<void> {
     });
   } catch (error) {
     if (!isReceiptMissing(error)) throw error;
-    const nextMinedNonce = await api.eth.publicClient.getTransactionCount({
+    const nextMinedNonce = await publicClient.getTransactionCount({
       address: stored.sender as `0x${string}`,
       blockTag: 'latest',
     });
     if (nextMinedNonce > parseNonce(stored.nonce)!) {
+      markDirectTransactionFailed(txHash, 'CLAIM_REPLACED_OR_MINED');
       output({
         mirror: stored.mirror,
         claimedId: stored.claimed_id,

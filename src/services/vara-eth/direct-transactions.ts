@@ -17,6 +17,7 @@ export type DirectTransactionStatus = 'pending' | 'confirmed' | 'reverted' | 're
 
 export interface DirectTransactionRecord {
   tx_hash: string;
+  chain_id: string | null;
   operation: string;
   mirror: string;
   claimed_id: string | null;
@@ -37,6 +38,7 @@ export interface DirectTransactionRecord {
 
 export interface InsertDirectTransaction {
   txHash: string;
+  chainId: number;
   operation: string;
   mirror: string;
   claimedId?: string;
@@ -52,6 +54,10 @@ export interface InsertDirectTransaction {
 
 let db: Database.Database | null = null;
 
+function warnStoreOperation(operation: string, error: unknown): void {
+  verbose(`Warning: failed to ${operation} in Vara.eth direct transaction store: ${error instanceof Error ? error.message : String(error)}`);
+}
+
 function getDb(): Database.Database | null {
   if (db) return db;
 
@@ -60,10 +66,12 @@ function getDb(): Database.Database | null {
     fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
     db = new Database(path.join(configDir, 'vara-eth-transactions.db'));
     db.pragma('journal_mode = WAL');
-    db.pragma('busy_timeout = 5000');
+    // Persistence must never delay a successfully broadcast --wait submitted result.
+    db.pragma('busy_timeout = 0');
     db.exec(`
       CREATE TABLE IF NOT EXISTS direct_transactions (
         tx_hash TEXT PRIMARY KEY,
+        chain_id TEXT NOT NULL,
         operation TEXT NOT NULL,
         mirror TEXT NOT NULL,
         claimed_id TEXT,
@@ -84,6 +92,11 @@ function getDb(): Database.Database | null {
       CREATE INDEX IF NOT EXISTS idx_direct_transactions_status ON direct_transactions(status);
       CREATE INDEX IF NOT EXISTS idx_direct_transactions_sender_nonce ON direct_transactions(sender, nonce);
     `);
+    const columns = db.prepare('PRAGMA table_info(direct_transactions)').all() as Array<{ name: string }>;
+    if (!columns.some(({ name }) => name === 'chain_id')) {
+      // Legacy rows cannot be safely replaced because their chain is unknown.
+      db.exec('ALTER TABLE direct_transactions ADD COLUMN chain_id TEXT');
+    }
     return db;
   } catch (error) {
     verbose(`Warning: failed to initialize Vara.eth direct transaction store: ${error instanceof Error ? error.message : String(error)}`);
@@ -95,33 +108,43 @@ function getDb(): Database.Database | null {
 export function insertDirectTransaction(input: InsertDirectTransaction): void {
   const database = getDb();
   if (!database) return;
-  database.prepare(`
-    INSERT INTO direct_transactions (
-      tx_hash, operation, mirror, claimed_id, sender, nonce, calldata, gas,
-      max_fee_per_gas, max_priority_fee_per_gas, gas_price, submitted_at_ts,
-      status, replacement_of
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-  `).run(
-    input.txHash,
-    input.operation,
-    input.mirror,
-    input.claimedId ?? null,
-    input.sender,
-    input.nonce.toString(),
-    input.calldata,
-    input.gas?.toString() ?? null,
-    input.maxFeePerGas?.toString() ?? null,
-    input.maxPriorityFeePerGas?.toString() ?? null,
-    input.gasPrice?.toString() ?? null,
-    Date.now(),
-    input.replacementOf ?? null,
-  );
+  try {
+    database.prepare(`
+      INSERT INTO direct_transactions (
+        tx_hash, chain_id, operation, mirror, claimed_id, sender, nonce, calldata, gas,
+        max_fee_per_gas, max_priority_fee_per_gas, gas_price, submitted_at_ts,
+        status, replacement_of
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(
+      input.txHash,
+      input.chainId.toString(),
+      input.operation,
+      input.mirror,
+      input.claimedId ?? null,
+      input.sender,
+      input.nonce.toString(),
+      input.calldata,
+      input.gas?.toString() ?? null,
+      input.maxFeePerGas?.toString() ?? null,
+      input.maxPriorityFeePerGas?.toString() ?? null,
+      input.gasPrice?.toString() ?? null,
+      Date.now(),
+      input.replacementOf ?? null,
+    );
+  } catch (error) {
+    warnStoreOperation('record direct transaction', error);
+  }
 }
 
 export function getDirectTransaction(txHash: string): DirectTransactionRecord | undefined {
   const database = getDb();
   if (!database) return undefined;
-  return database.prepare('SELECT * FROM direct_transactions WHERE tx_hash = ?').get(txHash) as DirectTransactionRecord | undefined;
+  try {
+    return database.prepare('SELECT * FROM direct_transactions WHERE tx_hash = ?').get(txHash) as DirectTransactionRecord | undefined;
+  } catch (error) {
+    warnStoreOperation('read direct transaction', error);
+    return undefined;
+  }
 }
 
 export function markDirectTransactionReceipt(
@@ -131,30 +154,47 @@ export function markDirectTransactionReceipt(
 ): void {
   const database = getDb();
   if (!database) return;
-  database.prepare(`
-    UPDATE direct_transactions
-    SET status = ?, receipt_block = ?, last_error = NULL
-    WHERE tx_hash = ?
-  `).run(status, blockNumber.toString(), txHash);
+  try {
+    database.prepare(`
+      UPDATE direct_transactions
+      SET status = ?, receipt_block = ?, last_error = NULL
+      WHERE tx_hash = ?
+    `).run(status, blockNumber.toString(), txHash);
+  } catch (error) {
+    warnStoreOperation('mark direct transaction receipt', error);
+  }
 }
 
 export function markDirectTransactionReplaced(originalTxHash: string, replacementTxHash: string): void {
   const database = getDb();
   if (!database) return;
-  database.prepare(`
-    UPDATE direct_transactions
-    SET status = 'replaced', replaced_by = ?
-    WHERE tx_hash = ? AND status = 'pending'
-  `).run(replacementTxHash, originalTxHash);
+  try {
+    database.prepare(`
+      UPDATE direct_transactions
+      SET status = 'replaced', replaced_by = ?
+      WHERE tx_hash = ? AND status = 'pending'
+    `).run(replacementTxHash, originalTxHash);
+  } catch (error) {
+    warnStoreOperation('mark direct transaction replaced', error);
+  }
 }
 
 export function markDirectTransactionFailed(txHash: string, error: string): void {
   const database = getDb();
   if (!database) return;
-  database.prepare(`
-    UPDATE direct_transactions
-    SET status = 'failed', last_error = ?
-    WHERE tx_hash = ? AND status = 'pending'
-  `).run(error, txHash);
+  try {
+    database.prepare(`
+      UPDATE direct_transactions
+      SET status = 'failed', last_error = ?
+      WHERE tx_hash = ? AND status = 'pending'
+    `).run(error, txHash);
+  } catch (storeError) {
+    warnStoreOperation('mark direct transaction failed', storeError);
+  }
 }
 
+/** Test-only cleanup for isolated SQLite store tests. */
+export function closeDirectTransactionStoreForTests(): void {
+  db?.close();
+  db = null;
+}

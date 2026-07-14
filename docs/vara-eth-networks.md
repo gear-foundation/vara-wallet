@@ -85,6 +85,9 @@ the claim failed. `CLAIM_REPLACED_OR_MINED` means the account nonce advanced
 without a receipt for that hash, so it was replaced externally or mined through
 an unavailable RPC path. Use `--resume` first. Use `--replace` only for a saved
 pending claim: it preserves the original Mirror, `claimedId`, nonce, and calldata.
+It also requires the original Ethereum sender and chain ID, so switching account or
+network cannot turn a replacement into a separate claim. Older records without a
+stored chain ID can be resumed but must not be replaced.
 A mined receipt with `ValueClaimingRequested` confirms that Mirror accepted the
 claim request; `ValueClaimed` is the later co-processor completion event. Advanced
 callers may set `--nonce`, `--gas`, `--max-fee-per-gas`, and
