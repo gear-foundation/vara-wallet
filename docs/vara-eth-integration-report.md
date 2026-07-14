@@ -50,6 +50,14 @@ Rail-specific workflows remain available under `vara-eth:*`:
   functions, WVARA transfers, and message replies. Direct Ethereum submissions
   skip the validator connection for low-level messages and for Sails calls with
   an explicit local IDL; completion-oriented defaults are unchanged.
+- Mailbox claims are direct L1 transactions with a bounded receipt wait and
+  local, secret-free transaction journal at
+  `~/.vara-wallet/vara-eth-transactions.db`. Pending claims can be checked with
+  `--resume` or safely replaced with the original calldata and nonce; replacement
+  requires the original Ethereum sender and chain. Claims use Ethereum-only
+  transport for submission, receipt checks, and recovery, so they do not start a
+  validator connection. A confirmed claim receipt only establishes
+  `ValueClaimingRequested`; final `ValueClaimed` completion is asynchronous.
 - `--no-validate-signature` exists only for injected-path diagnostics.
 - `reply.code` output is structured as `{ tag, raw, reason }`.
 - Vara.eth typed errors flow through stable JSON codes such as

@@ -89,7 +89,7 @@ npm link
 | `ETHEREUM_HTTP_RPC` | Ethereum HTTP endpoint for one-shot Vara.eth requests | network preset |
 | `VARA_ETH_ROUTER` | Vara.eth Router address | network preset |
 
-Vara.eth starts its validator connection and Ethereum bootstrap concurrently when a command needs both RPCs. Direct low-level message submissions, WVARA writes, and direct Sails function submissions with both `--via eth --wait submitted` and an explicit `--idl` use an Ethereum-only request context and do not open the validator connection. Built-in network presets use HTTP for one-shot Ethereum requests; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
+Vara.eth starts its validator connection and Ethereum bootstrap concurrently when a command needs both RPCs. Direct low-level message submissions, WVARA writes, mailbox claims (submission, receipt wait, and resume), and direct Sails function submissions with both `--via eth --wait submitted` and an explicit `--idl` use an Ethereum-only request context and do not open the validator connection. Built-in network presets use HTTP for one-shot Ethereum requests; `vara-eth:subscribe` commands retain WebSocket transport. A custom setup without `ETHEREUM_HTTP_RPC` remains compatible and falls back to `ETHEREUM_RPC`.
 
 ## Account Resolution
 
@@ -206,10 +206,12 @@ vara-wallet --chain vara-eth --network hoodi --account alice \
   vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --wait submitted
 vara-wallet --chain vara-eth --network hoodi \
   vara-eth:mailbox claim --resume 0xTX_HASH
+vara-wallet --chain vara-eth --network hoodi --account alice \
+  vara-eth:mailbox claim --replace 0xTX_HASH
 vara-wallet --chain vara-eth --network hoodi vara-eth:subscribe router
 ```
 
-Message sends and state-changing Sails calls default to `--wait reply`; use `--wait submitted` when only RPC acceptance and a transaction hash are needed. WVARA transfers and message replies default to `--wait receipt` and also accept `--wait submitted`. Mailbox claims default to a bounded receipt wait; they return `CLAIM_PENDING` with their hash and nonce when no receipt arrives, then support `--resume` and same-nonce `--replace` with a fresh EIP-1559 fee quote. Injected sends remain available with `--via injected`; submit-only injected output includes the locally derived `messageId`, but does not validate a validator signature or wait for program execution. Use `--no-validate-signature` only for diagnostics when waiting for injected replies. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
+Message sends and state-changing Sails calls default to `--wait reply`; use `--wait submitted` when only RPC acceptance and a transaction hash are needed. WVARA transfers and message replies default to `--wait receipt` and also accept `--wait submitted`. Mailbox claims default to a bounded 45-second receipt wait; `CLAIM_PENDING` includes the hash and nonce when no receipt arrives, and `--resume` checks the saved local transaction without signing or broadcasting. `--replace` reuses the original calldata and nonce, and requires the same Ethereum account and chain. A claim `confirmed` at this layer means the Mirror accepted `ValueClaimingRequested`; the later `ValueClaimed` event is co-processor completion. Injected sends remain available with `--via injected`; submit-only injected output includes the locally derived `messageId`, but does not validate a validator signature or wait for program execution. Use `--no-validate-signature` only for diagnostics when waiting for injected replies. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
 
 #### Persistent agent session
 

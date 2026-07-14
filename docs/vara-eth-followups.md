@@ -4,6 +4,13 @@ Deferred items from the `0.20.0` Vara.eth rail. Items listed here are not
 blockers for the current branch; they are operational parity or upstream
 cleanup work.
 
+## Shipped after 0.20.0
+
+- Mailbox-claim recovery uses an Ethereum-only path for submission, receipt
+  polling, resume, and same-nonce replacement. Pending direct claims are stored
+  locally without secrets, bound to their sender and chain ID, and can be resumed
+  or safely fee-bumped after a process restart.
+
 ## Shipped in 0.20.0
 
 - `vara-eth:*` subcommands honor global `--account` and `--passphrase`.
