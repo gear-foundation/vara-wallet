@@ -54,6 +54,43 @@ The compatibility defaults remain completion-oriented: message sends and Sails f
 
 A direct Sails submit can skip validator bootstrap only when `--idl <path>` is supplied. Without a local IDL, the wallet must query Vara.eth for the program code ID and embedded/cached interface before encoding the call.
 
+## Claiming mailbox values safely
+
+`vara-eth:mailbox claim` is a direct Ethereum transaction. The wallet now records
+the submitted transaction, its nonce, calldata, and EIP-1559 fees locally so a
+pending claim can be inspected or replaced without recreating the call by hand.
+
+```bash
+# Submit and receive the hash, nonce, gas limit, and selected EIP-1559 fees immediately.
+vara-wallet --chain vara-eth --network mainnet --account alice \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --wait submitted
+
+# Wait for the receipt for at most 45 seconds (or choose a different bound).
+vara-wallet --chain vara-eth --network mainnet --account alice \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --timeout-ms 30000
+
+# Recheck a locally submitted claim without signing or broadcasting anything.
+vara-wallet --chain vara-eth --network mainnet \
+  vara-eth:mailbox claim --resume 0xTX_HASH
+
+# Replace a still-pending claim with the same calldata and nonce, using a fresh
+# EIP-1559 quote and at least a 12.5% fee bump over the saved transaction.
+vara-wallet --chain vara-eth --network mainnet --account alice \
+  vara-eth:mailbox claim --replace 0xTX_HASH
+```
+
+`status: "pending"` with `code: "CLAIM_PENDING"` means the transaction has
+not produced a receipt within the requested wait window; it is not proof that
+the claim failed. `CLAIM_REPLACED_OR_MINED` means the account nonce advanced
+without a receipt for that hash, so it was replaced externally or mined through
+an unavailable RPC path. Use `--resume` first. Use `--replace` only for a saved
+pending claim: it preserves the original Mirror, `claimedId`, nonce, and calldata.
+A mined receipt with `ValueClaimingRequested` confirms that Mirror accepted the
+claim request; `ValueClaimed` is the later co-processor completion event. Advanced
+callers may set `--nonce`, `--gas`, `--max-fee-per-gas`, and
+`--max-priority-fee-per-gas` explicitly; replacement fee overrides must exceed
+the saved values.
+
 ## Persistent agent actions
 
 For agents that perform several Sails calls in one run, `vara-eth:session` removes repeated process startup, connection, signer, and IDL-loading work. It accepts one JSON request per stdin line and emits one NDJSON response per request. The session keeps running after a malformed request, making it suitable for an autonomous action loop.

@@ -201,10 +201,15 @@ Direct Vara.eth commands are available for rail-specific operations:
 ```bash
 vara-wallet vara-eth:wallet create alice --passphrase "$PASSPHRASE"
 vara-wallet --chain vara-eth --network hoodi vara-eth:program top-up 0xMIRROR --amount 1
+# A submitted mailbox claim can be resumed or safely replaced by its saved hash.
+vara-wallet --chain vara-eth --network hoodi --account alice \
+  vara-eth:mailbox claim 0xMIRROR 0xCLAIMED_ID --wait submitted
+vara-wallet --chain vara-eth --network hoodi \
+  vara-eth:mailbox claim --resume 0xTX_HASH
 vara-wallet --chain vara-eth --network hoodi vara-eth:subscribe router
 ```
 
-Message sends and state-changing Sails calls default to `--wait reply`; use `--wait submitted` when only RPC acceptance and a transaction hash are needed. WVARA transfers and message replies default to `--wait receipt` and also accept `--wait submitted`. Injected sends remain available with `--via injected`; submit-only injected output includes the locally derived `messageId`, but does not validate a validator signature or wait for program execution. Use `--no-validate-signature` only for diagnostics when waiting for injected replies. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
+Message sends and state-changing Sails calls default to `--wait reply`; use `--wait submitted` when only RPC acceptance and a transaction hash are needed. WVARA transfers and message replies default to `--wait receipt` and also accept `--wait submitted`. Mailbox claims default to a bounded receipt wait; they return `CLAIM_PENDING` with their hash and nonce when no receipt arrives, then support `--resume` and same-nonce `--replace` with a fresh EIP-1559 fee quote. Injected sends remain available with `--via injected`; submit-only injected output includes the locally derived `messageId`, but does not validate a validator signature or wait for program execution. Use `--no-validate-signature` only for diagnostics when waiting for injected replies. See `docs/vara-eth-networks.md` for endpoints and `docs/sails-real-program-e2e.md` for the full Sails deploy/discover/call smoke.
 
 #### Persistent agent session
 
