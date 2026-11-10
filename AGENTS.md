@@ -454,8 +454,8 @@ Vara uses SS58 addresses (like `kGioe8b7...`). Program IDs and message IDs are h
 
 | Network | Endpoint | Explorer |
 |---------|----------|----------|
-| Mainnet | `wss://rpc.vara.network` (default) | `--network mainnet` | https://vara.subscan.io |
-| Testnet | `wss://testnet.vara.network` | `--network testnet` | https://vara-testnet.subscan.io |
+| Mainnet | `wss://rpc.vara.network` (default) | `--network mainnet` | https://explorer.vara.network/ |
+| Testnet | `wss://testnet.vara.network` | `--network testnet` | [Vara Explorer](https://explorer.vara.network/) (mainnet only) |
 | Local | `ws://localhost:9944` | `--network local` | — |
 
 **Testnet DEX (Rivr):** Factory address `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e`
